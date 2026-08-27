@@ -2,11 +2,11 @@
 Testes Unitários do Motor de Conversão Cambial e PPP (src/converter.py).
 
 Valida:
-- Precisão matemática com Decimal em conversões Fiat-Fiat, Cripto-USD, Cripto-Fiat e Cripto-Cripto.
+- Precisão matemática com Decimal em conversões Fiat-Fiat, Cripto-USD, Cripto-Fiat, Fiat-Cripto e Cripto-Cripto.
 - Tratamento de mesma moeda (rate = 1.0).
 - Cálculo exato de Paridade de Poder de Compra (PPP), taxa teórica e Razão de Nível de Preços (PLR).
 - Rejeição de criptoativos em cálculos de PPP com UnsupportedPPPAssetError.
-- Tratamento de erros para valores negativos/zero e taxas inválidas.
+- Tratamento de erros para valores negativos/zero, taxas inválidas e países inexistentes.
 """
 
 from decimal import Decimal
@@ -122,6 +122,48 @@ async def test_convert_crypto_to_fiat_cross(converter: CurrencyConverter, mock_c
 
 
 @pytest.mark.asyncio
+async def test_convert_fiat_to_crypto_direct_usd(converter: CurrencyConverter, mock_clients):
+    """Testa conversão de USD direto para Cripto (USD -> BTC)."""
+    _, coincap, _ = mock_clients
+    coincap.get_rate_in_usd.return_value = ExchangeRate(
+        base_currency="BTC",
+        target_currency="USD",
+        rate=Decimal("50000.00"),
+        source="coincap",
+    )
+
+    res = await converter.convert(Decimal("100000.00"), "USD", "BTC")
+    assert res.currency_from == "USD"
+    assert res.currency_to == "BTC"
+    assert res.rate == Decimal("0.00002")
+    assert res.amount_to == Decimal("2.0")
+
+
+@pytest.mark.asyncio
+async def test_convert_fiat_to_crypto_cross_non_usd(converter: CurrencyConverter, mock_clients):
+    """Testa conversão de Fiat não-USD para Cripto (BRL -> BTC)."""
+    frankfurter, coincap, _ = mock_clients
+    frankfurter.get_rate.return_value = ExchangeRate(
+        base_currency="BRL",
+        target_currency="USD",
+        rate=Decimal("0.20"),
+        source="frankfurter",
+    )
+    coincap.get_rate_in_usd.return_value = ExchangeRate(
+        base_currency="BTC",
+        target_currency="USD",
+        rate=Decimal("100000.00"),
+        source="coincap",
+    )
+
+    res = await converter.convert(Decimal("500000.00"), "BRL", "BTC")
+    assert res.currency_from == "BRL"
+    assert res.currency_to == "BTC"
+    assert res.rate == Decimal("0.000002")
+    assert res.amount_to == Decimal("1.0")
+
+
+@pytest.mark.asyncio
 async def test_convert_crypto_to_crypto(converter: CurrencyConverter, mock_clients):
     """Testa conversão entre dois criptoativos (ETH -> BTC)."""
     _, coincap, _ = mock_clients
@@ -181,11 +223,8 @@ async def test_convert_with_ppp_success(converter: CurrencyConverter, mock_clien
     assert isinstance(ppp_res, PPPResult)
     assert ppp_res.country_from == "USA"
     assert ppp_res.country_to == "BRA"
-    # PPP Rate: PPP_BRA / PPP_USA = 2.50 / 1.00 = 2.50
     assert ppp_res.ppp_rate == Decimal("2.50")
-    # Equivalente PPP: 1000 USD tem poder de compra equivalente a 2500 BRL no Brasil
     assert ppp_res.ppp_equivalent_amount == Decimal("2500.00")
-    # Price Level Ratio: Nominal (5.00) / PPP (2.50) = 2.00
     assert ppp_res.price_level_ratio == Decimal("2.00")
 
 
@@ -197,6 +236,28 @@ async def test_convert_with_ppp_rejects_crypto(converter: CurrencyConverter):
             amount=Decimal("1.0"),
             from_query="BTC",
             to_query="USD",
+        )
+
+    with pytest.raises(UnsupportedPPPAssetError):
+        await converter.convert_with_ppp(
+            amount=Decimal("100.0"),
+            from_query="USD",
+            to_query="ETH",
+        )
+
+
+@pytest.mark.asyncio
+async def test_convert_with_ppp_missing_country_factor(converter: CurrencyConverter, mock_clients):
+    """Testa tratamento de erro quando o Banco Mundial não possui dados para o país."""
+    frankfurter, _, world_bank = mock_clients
+    frankfurter.get_rate.return_value = ExchangeRate("USD", "BRL", Decimal("5.0"))
+    world_bank.get_ppp_conversion_factor.return_value = None
+
+    with pytest.raises(ValueError, match="Fator PPP do Banco Mundial não encontrado"):
+        await converter.convert_with_ppp(
+            amount=Decimal("100.0"),
+            from_query="USD",
+            to_query="BRL",
         )
 
 
@@ -212,3 +273,13 @@ async def test_convert_invalid_amount(converter: CurrencyConverter):
 
     with pytest.raises(ValueError):
         await converter.convert(Decimal("-50.0"), "USD", "BRL")
+
+
+@pytest.mark.asyncio
+async def test_convert_invalid_rate_zero(converter: CurrencyConverter, mock_clients):
+    """Testa detecção de taxa zerada ou negativa."""
+    frankfurter, _, _ = mock_clients
+    frankfurter.get_rate.return_value = ExchangeRate("USD", "BRL", Decimal("0.0"))
+
+    with pytest.raises(InvalidExchangeRateError):
+        await converter.convert(Decimal("100"), "USD", "BRL")
