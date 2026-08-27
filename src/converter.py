@@ -8,8 +8,9 @@ Responsabilidades:
 - Garantir precisão numérica estrita com Decimal.
 """
 
+import asyncio
 from decimal import Decimal, getcontext
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.api.coincap import CoinCapClient
 from src.api.frankfurter import FrankfurterClient
@@ -17,12 +18,15 @@ from src.api.world_bank import WorldBankClient
 from src.match import CurrencyMatcher, get_matcher
 from src.models import (
     AssetType,
+    BasketItemResult,
+    BasketResult,
     ConversionResult,
     ExchangeRate,
     InvalidExchangeRateError,
     PPPResult,
     UnsupportedPPPAssetError,
 )
+
 
 # Define a precisão aritmética padrão
 getcontext().prec = 28
@@ -230,3 +234,54 @@ class CurrencyConverter:
         )
 
         return nominal_conversion, ppp_result
+
+    async def convert_basket(
+        self,
+        amount: Decimal,
+        from_currency: str,
+        target_currencies: List[str],
+        concurrency_limit: int = 5,
+    ) -> BasketResult:
+        """
+        Converte uma quantia da moeda base simultaneamente para uma lista de moedas alvo.
+        Utiliza semáforo de concorrência e tolera falhas parciais (return_exceptions).
+        """
+        if amount <= 0:
+            raise ValueError(f"A quantia a ser convertida deve ser maior que zero. Recebido: {amount}")
+
+        if not target_currencies:
+            raise ValueError("A lista de moedas de destino não pode estar vazia.")
+
+        from_info = self.matcher.match_strict(from_currency)
+        sem = asyncio.Semaphore(concurrency_limit)
+
+        async def _convert_single(target_raw: str) -> BasketItemResult:
+            async with sem:
+                try:
+                    target_info = self.matcher.match_strict(target_raw)
+                    conv_res = await self.convert(amount, from_info.code, target_info.code)
+                    return BasketItemResult(
+                        currency_to=target_info.code,
+                        amount_to=conv_res.amount_to,
+                        rate=conv_res.rate,
+                        is_stale=conv_res.is_stale,
+                        error=None,
+                    )
+                except Exception as e:
+                    return BasketItemResult(
+                        currency_to=target_raw.strip().upper(),
+                        amount_to=None,
+                        rate=None,
+                        is_stale=False,
+                        error=str(e),
+                    )
+
+        tasks = [_convert_single(t) for t in target_currencies]
+        results: List[BasketItemResult] = await asyncio.gather(*tasks)
+
+        return BasketResult(
+            amount_from=amount,
+            currency_from=from_info.code,
+            items=results,
+        )
+

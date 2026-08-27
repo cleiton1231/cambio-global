@@ -283,3 +283,65 @@ async def test_convert_invalid_rate_zero(converter: CurrencyConverter, mock_clie
 
     with pytest.raises(InvalidExchangeRateError):
         await converter.convert(Decimal("100"), "USD", "BRL")
+
+
+# ============================================================================
+# 4. Testes de Cesta de Moedas (Basket Converter)
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_convert_basket_success(converter: CurrencyConverter, mock_clients):
+    """Testa conversão simultânea para múltiplas moedas."""
+    frankfurter, coincap, _ = mock_clients
+
+    async def mock_frank_rate(base, target):
+        rates = {"BRL": Decimal("5.50"), "EUR": Decimal("0.90")}
+        return ExchangeRate(base, target, rates.get(target, Decimal("1.0")))
+
+    frankfurter.get_rate.side_effect = mock_frank_rate
+    coincap.get_rate_in_usd.return_value = ExchangeRate("BTC", "USD", Decimal("100000.00"))
+
+    basket_res = await converter.convert_basket(
+        amount=Decimal("100.00"),
+        from_currency="USD",
+        target_currencies=["BRL", "EUR", "BTC"],
+    )
+
+    assert basket_res.currency_from == "USD"
+    assert basket_res.amount_from == Decimal("100.00")
+    assert len(basket_res.items) == 3
+
+    item_map = {item.currency_to: item for item in basket_res.items}
+    assert item_map["BRL"].amount_to == Decimal("550.00")
+    assert item_map["BRL"].error is None
+
+    assert item_map["EUR"].amount_to == Decimal("90.00")
+    assert item_map["EUR"].error is None
+
+    assert item_map["BTC"].amount_to == Decimal("0.001")
+    assert item_map["BTC"].error is None
+
+
+@pytest.mark.asyncio
+async def test_convert_basket_partial_failure(converter: CurrencyConverter, mock_clients):
+    """Garante que falha em um item da cesta não aborte os outros válidos."""
+    frankfurter, _, _ = mock_clients
+    frankfurter.get_rate.return_value = ExchangeRate("USD", "BRL", Decimal("5.00"))
+
+    basket_res = await converter.convert_basket(
+        amount=Decimal("10.00"),
+        from_currency="USD",
+        target_currencies=["BRL", "INVALID_COIN_XYZ"],
+    )
+
+    assert len(basket_res.items) == 2
+    item_map = {item.currency_to: item for item in basket_res.items}
+
+    # BRL teve sucesso
+    assert item_map["BRL"].amount_to == Decimal("50.00")
+    assert item_map["BRL"].error is None
+
+    # INVALID falhou graciosamente com mensagem de erro registrada
+    assert item_map["INVALID_COIN_XYZ"].amount_to is None
+    assert item_map["INVALID_COIN_XYZ"].error is not None
+
