@@ -30,8 +30,20 @@ class StorageManager:
         Valida e resolve o caminho do arquivo garantindo que permaneça
         estritamente dentro do data_dir autorizado.
         """
-        target = Path(target_filename_or_path)
-        # Se for nome simples ou relativo, resolve dentro de data_dir
+        if not target_filename_or_path or "\x00" in target_filename_or_path:
+            raise ValueError(f"Caminho de arquivo inválido ou nulo: '{target_filename_or_path}'")
+
+        # Normaliza barras invertidas (Windows) para barras padrão
+        clean_str = str(target_filename_or_path).replace("\\", "/")
+
+        # Rejeita tentativas explícitas de subida de diretório
+        parts = clean_str.split("/")
+        if ".." in parts:
+            raise ValueError(
+                f"Caminho de arquivo inválido ou fora do diretório permitido: '{target_filename_or_path}'"
+            )
+
+        target = Path(clean_str)
         if not target.is_absolute():
             resolved = (self.data_dir / target).resolve()
         else:
@@ -46,6 +58,7 @@ class StorageManager:
             )
 
         return resolved
+
 
     def _atomic_write_json(self, file_path: Path, data: Any) -> None:
         """Escreve dados em JSON de forma atômica utilizando arquivo temporário."""
