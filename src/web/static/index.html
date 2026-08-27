@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Câmbio Global - Fiat, Cripto & Poder de Compra</title>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: #151d30;
+            --card-border: #24304f;
+            --primary: #38bdf8;
+            --primary-hover: #0ea5e9;
+            --accent: #10b981;
+            --danger: #ef4444;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --input-bg: #0f172a;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+            max-width: 800px;
+        }
+
+        .header h1 {
+            font-size: 2.2rem;
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .header p {
+            color: var(--text-muted);
+            font-size: 1rem;
+        }
+
+        .badges {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            background: #1e293b;
+            border: 1px solid var(--card-border);
+            padding: 0.25rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            color: var(--accent);
+        }
+
+        .main-container {
+            width: 100%;
+            max-width: 900px;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            background: var(--card-bg);
+            padding: 0.4rem;
+            border-radius: 12px;
+            border: 1px solid var(--card-border);
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tab-btn.active {
+            background: var(--primary);
+            color: #0b0f19;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 1.75rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        @media (max-width: 640px) {
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .form-group label {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        .form-group input, .form-group select {
+            background: var(--input-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            color: var(--text-main);
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input:focus, .form-group select:focus {
+            border-color: var(--primary);
+        }
+
+        .action-btn {
+            width: 100%;
+            background: var(--primary);
+            color: #0b0f19;
+            font-weight: 700;
+            padding: 0.9rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background 0.2s;
+        }
+
+        .action-btn:hover {
+            background: var(--primary-hover);
+        }
+
+        .result-box {
+            margin-top: 1.5rem;
+            padding: 1.25rem;
+            background: var(--input-bg);
+            border-radius: 12px;
+            border-left: 4px solid var(--accent);
+            display: none;
+        }
+
+        .result-box.active {
+            display: block;
+        }
+
+        .result-title {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            margin-bottom: 0.25rem;
+        }
+
+        .result-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+
+        .result-rate {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .ppp-card {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--card-border);
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .stat-item {
+            background: #1e293b;
+            padding: 0.75rem;
+            border-radius: 8px;
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .stat-val {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #38bdf8;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            margin-top: 1rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        th, td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--card-border);
+        }
+
+        th {
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .tag-green { color: var(--accent); font-weight: 600; }
+        .tag-red { color: var(--danger); font-weight: 600; }
+
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+    <header class="header">
+        <h1>💱 Câmbio Global 🪙</h1>
+        <p>Conversor de Moedas Fiduciárias, Criptoativos e Paridade de Poder de Compra (PPP)</p>
+        <div class="badges">
+            <span class="badge">BCE / Frankfurter API</span>
+            <span class="badge">CoinCap API</span>
+            <span class="badge">Banco Mundial (PPP)</span>
+            <span class="badge">Zero Auth</span>
+        </div>
+    </header>
+
+    <main class="main-container">
+        <!-- Navegação por Abas -->
+        <nav class="tabs">
+            <button class="tab-btn active" onclick="switchTab('converter')">Conversor & PPP</button>
+            <button class="tab-btn" onclick="switchTab('rates')">Cotações Fiat</button>
+            <button class="tab-btn" onclick="switchTab('crypto')">Criptoativos</button>
+            <button class="tab-btn" onclick="switchTab('history')">Histórico</button>
+        </nav>
+
+        <!-- Aba 1: Conversor e PPP -->
+        <section id="tab-converter" class="card">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="amount">Quantia</label>
+                    <input type="number" id="amount" value="100" min="0.01" step="any">
+                </div>
+                <div class="form-group">
+                    <label for="fromCurrency">De (Símbolo/Código/Nome)</label>
+                    <input type="text" id="fromCurrency" value="USD" placeholder="ex: USD, R$, BTC">
+                </div>
+                <div class="form-group">
+                    <label for="toCurrency">Para (Símbolo/Código/Nome)</label>
+                    <input type="text" id="toCurrency" value="BRL" placeholder="ex: BRL, EUR, ETH">
+                </div>
+            </div>
+
+            <div style="margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                <input type="checkbox" id="enablePPP" style="width: auto;">
+                <label for="enablePPP" style="font-size: 0.9rem; cursor: pointer;">Calcular Paridade de Poder de Compra (PPP - Banco Mundial)</label>
+            </div>
+
+            <button class="action-btn" onclick="performConversion()">Calcular Conversão</button>
+
+            <div id="resultBox" class="result-box">
+                <div class="result-title">Resultado Nominal de Mercado:</div>
+                <div id="nominalVal" class="result-value">--</div>
+                <div id="rateInfo" class="result-rate">Taxa: --</div>
+
+                <div id="pppSection" class="ppp-card hidden">
+                    <div class="stat-item">
+                        <div class="stat-label">🌍 Equivalente em Poder de Compra (PPP):</div>
+                        <div id="pppVal" class="stat-val">--</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Índice do Nível de Preços (PLR):</div>
+                        <div id="plrVal" class="stat-val">--</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Aba 2: Cotações Fiat -->
+        <section id="tab-rates" class="card hidden">
+            <div style="display: flex; gap: 1rem; align-items: flex-end; margin-bottom: 1rem;">
+                <div class="form-group" style="flex: 1;">
+                    <label for="baseRate">Moeda Base</label>
+                    <input type="text" id="baseRate" value="USD" placeholder="USD">
+                </div>
+                <button class="action-btn" style="width: auto; padding: 0.75rem 1.5rem;" onclick="loadRates()">Atualizar</button>
+            </div>
+            <div class="table-container">
+                <table id="ratesTable">
+                    <thead>
+                        <tr>
+                            <th>Moeda</th>
+                            <th>Taxa Oficial (BCE)</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Aba 3: Criptoativos -->
+        <section id="tab-crypto" class="card hidden">
+            <div class="table-container">
+                <table id="cryptoTable">
+                    <thead>
+                        <tr>
+                            <th>Rank</th>
+                            <th>Ticker</th>
+                            <th>Nome</th>
+                            <th>Preço (USD)</th>
+                            <th>Variação 24h</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Aba 4: Histórico -->
+        <section id="tab-history" class="card hidden">
+            <div class="table-container">
+                <table id="historyTable">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>De</th>
+                            <th>Para</th>
+                            <th>Original</th>
+                            <th>Convertido</th>
+                            <th>PPP</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            document.querySelectorAll('main > section').forEach(sec => sec.classList.add('hidden'));
+            const activeSection = document.getElementById('tab-' + tabId);
+            if (activeSection) activeSection.classList.remove('hidden');
+
+            if (tabId === 'rates') loadRates();
+            if (tabId === 'crypto') loadCrypto();
+            if (tabId === 'history') loadHistory();
+        }
+
+        async function performConversion() {
+            const amount = parseFloat(document.getElementById('amount').value);
+            const fromC = document.getElementById('fromCurrency').value.trim();
+            const toC = document.getElementById('toCurrency').value.trim();
+            const withPPP = document.getElementById('enablePPP').checked;
+
+            if (!amount || !fromC || !toC) {
+                alert('Preencha quantia, moeda de origem e destino.');
+                return;
+            }
+
+            const endpoint = withPPP ? '/api/ppp' : '/api/convert';
+            try {
+                const res = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ amount, from_currency: fromC, to_currency: toC })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Erro na conversão');
+
+                const box = document.getElementById('resultBox');
+                box.classList.add('active');
+
+                if (withPPP) {
+                    const c = data.conversion;
+                    const p = data.ppp;
+                    document.getElementById('nominalVal').innerText = `${c.amount_to.toLocaleString(undefined, {minimumFractionDigits: 2})} ${c.currency_to}`;
+                    document.getElementById('rateInfo').innerText = `Taxa Nominal: 1 ${c.currency_from} = ${c.rate} ${c.currency_to}`;
+
+                    const pppSec = document.getElementById('pppSection');
+                    pppSec.classList.remove('hidden');
+                    document.getElementById('pppVal').innerText = `${p.ppp_equivalent_amount.toLocaleString(undefined, {minimumFractionDigits: 2})} ${p.currency_to}`;
+                    document.getElementById('plrVal').innerText = `${p.price_level_ratio.toFixed(2)} (Taxa PPP: ${p.ppp_rate.toFixed(4)})`;
+                } else {
+                    document.getElementById('nominalVal').innerText = `${data.amount_to.toLocaleString(undefined, {minimumFractionDigits: 2})} ${data.currency_to}`;
+                    document.getElementById('rateInfo').innerText = `Taxa de Mercado: 1 ${data.currency_from} = ${data.rate} ${data.currency_to} (${data.source})`;
+                    document.getElementById('pppSection').classList.add('hidden');
+                }
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        async function loadRates() {
+            const base = document.getElementById('baseRate').value.trim() || 'USD';
+            try {
+                const res = await fetch(`/api/rates?base=${base}`);
+                const data = await res.json();
+                const tbody = document.querySelector('#ratesTable tbody');
+                tbody.innerHTML = '';
+                for (const [curr, rate] of Object.entries(data.rates || {})) {
+                    const row = `<tr><td><strong>${curr}</strong></td><td>${rate.toFixed(4)}</td></tr>`;
+                    tbody.innerHTML += row;
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function loadCrypto() {
+            try {
+                const res = await fetch('/api/crypto?limit=15');
+                const assets = await res.json();
+                const tbody = document.querySelector('#cryptoTable tbody');
+                tbody.innerHTML = '';
+                assets.forEach(a => {
+                    const change = parseFloat(a.changePercent24Hr);
+                    const tagClass = change >= 0 ? 'tag-green' : 'tag-red';
+                    const changeStr = `<span class="${tagClass}">${change >= 0 ? '+' : ''}${change.toFixed(2)}%</span>`;
+                    const price = parseFloat(a.priceUsd).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                    const row = `<tr>
+                        <td>${a.rank}</td>
+                        <td><strong>${a.symbol}</strong></td>
+                        <td>${a.name}</td>
+                        <td>$${price}</td>
+                        <td>${changeStr}</td>
+                    </tr>`;
+                    tbody.innerHTML += row;
+                });
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function loadHistory() {
+            try {
+                const res = await fetch('/api/history?limit=15');
+                const records = await res.json();
+                const tbody = document.querySelector('#historyTable tbody');
+                tbody.innerHTML = '';
+                records.forEach(r => {
+                    const pppStr = r.ppp_equivalent ? `${r.ppp_equivalent.toFixed(2)}` : '-';
+                    const dateStr = r.timestamp ? r.timestamp.substring(0, 19).replace('T', ' ') : '-';
+                    const row = `<tr>
+                        <td>${dateStr}</td>
+                        <td>${r.from_currency}</td>
+                        <td>${r.to_currency}</td>
+                        <td>${r.amount_from.toFixed(2)}</td>
+                        <td class="tag-green">${r.amount_to.toFixed(2)}</td>
+                        <td>${pppStr}</td>
+                    </tr>`;
+                    tbody.innerHTML += row;
+                });
+            } catch (err) {
+                console.error(err);
+            }
+        }
+    </script>
+</body>
+</html>
