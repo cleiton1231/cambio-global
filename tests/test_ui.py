@@ -8,9 +8,13 @@ import pytest
 
 from src.main import main, start_web_server
 from src.models import (
+    BasketItemResult,
+    BasketResult,
     ConversionRecord,
     ConversionResult,
     PPPResult,
+    TrendAnalysis,
+    TrendPoint,
 )
 from src.ui.views import TerminalViews
 
@@ -29,6 +33,7 @@ def test_terminal_views_render():
         amount_to=Decimal("500"),
         currency_to="BRL",
         rate=Decimal("5.0"),
+        is_stale=True,
     )
     ppp = PPPResult(
         country_from="USA",
@@ -45,6 +50,33 @@ def test_terminal_views_render():
         year=2023,
     )
     views.render_conversion_result(conv, ppp)
+
+    # Trend
+    trend = TrendAnalysis(
+        base_currency="USD",
+        target_currency="BRL",
+        days=30,
+        points=[TrendPoint("2026-08-01", Decimal("5.0")), TrendPoint("2026-08-27", Decimal("5.5"))],
+        start_rate=Decimal("5.0"),
+        end_rate=Decimal("5.5"),
+        min_rate=Decimal("4.9"),
+        max_rate=Decimal("5.6"),
+        avg_rate=Decimal("5.25"),
+        change_pct=Decimal("10.0"),
+        sparkline=" █",
+    )
+    views.render_trend_analysis(trend)
+
+    # Basket
+    basket = BasketResult(
+        amount_from=Decimal("100"),
+        currency_from="USD",
+        items=[
+            BasketItemResult("BRL", Decimal("550"), Decimal("5.5"), False, None),
+            BasketItemResult("ERR", None, None, False, "Erro mock"),
+        ],
+    )
+    views.render_basket_result(basket)
 
     # Rates
     views.render_rates_table("USD", {"BRL": 5.5, "EUR": 0.92})
@@ -72,12 +104,22 @@ def test_cli_help_flag():
     assert exc_info.value.code == 0
 
 
-def test_cli_flags_convert(tmp_path):
-    """Testa execução de comandos via CLI (convert, rates, history, fav)."""
+def test_cli_flags_execution():
+    """Testa execução de comandos via CLI (convert, basket, trend, rates, history, fav)."""
     with patch("src.main.CambioGlobalCLI.execute_conversion", new_callable=AsyncMock) as mock_exec:
         exit_code = main(["--convert", "100", "USD", "BRL"])
         assert exit_code == 0
         mock_exec.assert_called_once_with("100", "USD", "BRL", with_ppp=False)
+
+    with patch("src.main.CambioGlobalCLI.execute_basket", new_callable=AsyncMock) as mock_basket:
+        exit_code = main(["--basket", "100", "USD", "BRL", "EUR"])
+        assert exit_code == 0
+        mock_basket.assert_called_once_with("100", "USD", ["BRL", "EUR"])
+
+    with patch("src.main.CambioGlobalCLI.show_trend", new_callable=AsyncMock) as mock_trend:
+        exit_code = main(["--trend", "USD", "BRL", "30"])
+        assert exit_code == 0
+        mock_trend.assert_called_once_with("USD", "BRL", days=30)
 
     with patch("src.main.CambioGlobalCLI.show_rates", new_callable=AsyncMock) as mock_rates:
         exit_code = main(["--rates", "EUR"])

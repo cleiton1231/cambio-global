@@ -7,7 +7,9 @@ Rotas disponibilizadas:
 - GET /api/search: Autocomplete e busca de moedas.
 - GET /api/rates: Cotações atuais para uma moeda base.
 - GET /api/crypto: Principais criptoativos da CoinCap.
+- GET /api/trend: Análise de tendências históricas e sparklines.
 - POST /api/convert: Conversão cambial nominal (Fiat e Cripto).
+- POST /api/basket: Conversão concorrente de cesta de moedas.
 - POST /api/ppp: Análise de Paridade de Poder de Compra (PPP).
 - GET /api/history: Histórico recente de conversões.
 - GET /api/favorites / POST /api/favorites / DELETE /api/favorites: Favoritos.
@@ -33,6 +35,7 @@ from src.models import (
     UnsupportedPPPAssetError,
 )
 from src.storage import StorageManager
+from src.trend import CurrencyTrendAnalyzer
 
 # ============================================================================
 # Schemas Pydantic para Requisições e Respostas
@@ -42,6 +45,12 @@ class ConvertRequest(BaseModel):
     amount: float = Field(..., gt=0, description="Quantia monetária a converter (> 0)")
     from_currency: str = Field(..., description="Moeda ou símbolo de origem (ex: USD, R$, BTC)")
     to_currency: str = Field(..., description="Moeda ou símbolo de destino (ex: BRL, EUR, ETH)")
+
+
+class BasketRequest(BaseModel):
+    amount: float = Field(..., gt=0, description="Quantia monetária a converter (> 0)")
+    from_currency: str = Field(..., description="Moeda base de origem (ex: USD, EUR)")
+    targets: Optional[List[str]] = Field(None, description="Lista de moedas alvo (opcional; usa favoritos se omitido)")
 
 
 class PPPRequest(BaseModel):
@@ -69,6 +78,11 @@ converter = CurrencyConverter(
     frankfurter=frankfurter_client,
     coincap=coincap_client,
     world_bank=world_bank_client,
+)
+trend_analyzer = CurrencyTrendAnalyzer(
+    matcher=matcher,
+    frankfurter=frankfurter_client,
+    coincap=coincap_client,
 )
 storage = StorageManager()
 
@@ -105,11 +119,15 @@ async def handle_get_crypto(limit: int = 20) -> List[Dict[str, Any]]:
     return await coincap_client.get_assets(limit=limit)
 
 
+async def handle_trend(from_currency: str, to_currency: str, days: int = 30) -> Dict[str, Any]:
+    res = await trend_analyzer.analyze_trend(from_currency, to_currency, days=days)
+    return res.to_dict()
+
+
 async def handle_convert(req: ConvertRequest) -> Dict[str, Any]:
     amount_dec = Decimal(str(req.amount))
     result = await converter.convert(amount_dec, req.from_currency, req.to_currency)
 
-    # Salva no histórico
     rec = ConversionRecord(
         id=str(uuid.uuid4())[:8],
         timestamp=datetime.now(timezone.utc).isoformat(),
@@ -120,6 +138,21 @@ async def handle_convert(req: ConvertRequest) -> Dict[str, Any]:
         rate=float(result.rate),
     )
     storage.save_conversion_record(rec)
+    return result.to_dict()
+
+
+async def handle_basket(req: BasketRequest) -> Dict[str, Any]:
+    amount_dec = Decimal(str(req.amount))
+    targets = req.targets
+    if not targets:
+        favs = storage.get_favorites()
+        targets = favs if favs else ["BRL", "EUR", "GBP", "JPY", "BTC", "ETH"]
+
+    result = await converter.convert_basket(
+        amount=amount_dec,
+        from_currency=req.from_currency,
+        target_currencies=targets,
+    )
     return result.to_dict()
 
 
@@ -189,7 +222,7 @@ try:
 
     app = FastAPI(
         title="Câmbio Global API",
-        description="API REST para conversão cambial (Fiat, Cripto e Paridade de Poder de Compra - Banco Mundial)",
+        description="API REST para conversão cambial (Fiat, Cripto, Cestas e Paridade de Poder de Compra - Banco Mundial)",
         version="0.1.0",
         docs_url="/docs",
         redoc_url="/redoc",
@@ -236,10 +269,32 @@ try:
         except Exception as e:
             raise HTTPException(status_code=502, detail=str(e))
 
+    @app.get("/api/trend")
+    async def api_trend(from_currency: str = "USD", to_currency: str = "BRL", days: int = 30) -> Dict[str, Any]:
+        try:
+            return await handle_trend(from_currency, to_currency, days)
+        except CurrencyNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except (ValueError, CambioGlobalError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
     @app.post("/api/convert")
     async def api_convert(req: ConvertRequest) -> Dict[str, Any]:
         try:
             return await handle_convert(req)
+        except CurrencyNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except (ValueError, CambioGlobalError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post("/api/basket")
+    async def api_basket(req: BasketRequest) -> Dict[str, Any]:
+        try:
+            return await handle_basket(req)
         except CurrencyNotFoundError as e:
             raise HTTPException(status_code=404, detail=str(e))
         except (ValueError, CambioGlobalError) as e:

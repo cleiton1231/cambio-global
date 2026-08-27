@@ -4,6 +4,8 @@ Renderização Visual no Terminal com a biblioteca Rich.
 Responsabilidades:
 - Exibir tabelas estilizadas de taxas de câmbio (Fiat e Cripto).
 - Renderizar painéis comparativos de conversão nominal vs. Paridade de Poder de Compra (PPP).
+- Renderizar análises de tendência com Sparklines Unicode.
+- Renderizar conversões em lote / cesta de moedas.
 - Exibir histórico, favoritos, spinners e mensagens de erro amigáveis sem stack traces.
 """
 
@@ -14,7 +16,13 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from src.models import ConversionRecord, ConversionResult, PPPResult
+from src.models import (
+    BasketResult,
+    ConversionRecord,
+    ConversionResult,
+    PPPResult,
+    TrendAnalysis,
+)
 
 
 class TerminalViews:
@@ -58,7 +66,11 @@ class TerminalViews:
             "Taxa de Mercado:",
             f"1 {conversion.currency_from} = {conversion.rate:,.6f} {conversion.currency_to}"
         )
-        table.add_row("Fonte da Cotação:", f"[italic]{conversion.source}[/italic]")
+        
+        source_str = conversion.source
+        if conversion.is_stale:
+            source_str += " [yellow](Cache Stale)[/yellow]"
+        table.add_row("Fonte da Cotação:", f"[italic]{source_str}[/italic]")
 
         if ppp:
             table.add_row("─" * 20, "─" * 30)
@@ -84,6 +96,46 @@ class TerminalViews:
 
         title = " Resultado da Conversão Cambial "
         self.console.print(Panel(table, title=title, border_style="green", expand=False))
+
+    def render_trend_analysis(self, trend: TrendAnalysis) -> None:
+        """Renderiza a análise de tendência com Sparkline Unicode e volatilidade."""
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_column("Chave", style="bold white")
+        table.add_column("Valor", style="bold yellow")
+
+        table.add_row("Par Cambial:", f"{trend.base_currency} / {trend.target_currency}")
+        table.add_row("Período Analisado:", f"Últimos {trend.days} dias ({len(trend.points)} amostras)")
+        table.add_row("Cotação Inicial:", f"{trend.start_rate:,.4f}")
+        table.add_row("Cotação Atual/Final:", f"{trend.end_rate:,.4f}")
+        table.add_row("Mínima / Máxima:", f"{trend.min_rate:,.4f} / {trend.max_rate:,.4f}")
+        table.add_row("Média do Período:", f"{trend.avg_rate:,.4f}")
+
+        # Variação com cor
+        change_style = "bold green" if trend.change_pct >= 0 else "bold red"
+        table.add_row("Variação Acumulada:", f"[{change_style}]{trend.change_pct:+.2f}%[/{change_style}]")
+        table.add_row("Gráfico Sparkline:", f"[bold cyan]{trend.sparkline}[/bold cyan]")
+
+        title = f" 📊 Análise de Tendência: {trend.base_currency} ➔ {trend.target_currency} "
+        self.console.print(Panel(table, title=title, border_style="cyan", expand=False))
+
+    def render_basket_result(self, basket: BasketResult) -> None:
+        """Renderiza a tabela de conversão para cesta de moedas."""
+        table = Table(title=f"🧺 Conversão da Cesta: {basket.amount_from:,.2f} {basket.currency_from}")
+        table.add_column("Moeda Alvo", style="bold cyan")
+        table.add_column("Valor Convertido", justify="right", style="bold green")
+        table.add_column("Taxa Aplicada", justify="right", style="white")
+        table.add_column("Status / Erro", style="dim")
+
+        for item in basket.items:
+            if item.error:
+                table.add_row(item.currency_to, "-", "-", f"[red]Falha: {item.error[:30]}[/red]")
+            else:
+                amt_str = f"{item.amount_to:,.2f}" if item.amount_to is not None else "-"
+                rate_str = f"{item.rate:,.6f}" if item.rate is not None else "-"
+                status_str = "[yellow]Stale[/yellow]" if item.is_stale else "[green]OK[/green]"
+                table.add_row(item.currency_to, amt_str, rate_str, status_str)
+
+        self.console.print(table)
 
     def render_rates_table(self, base_currency: str, rates: Dict[str, Any]) -> None:
         """Renderiza a tabela de cotações fiduciárias."""

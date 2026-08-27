@@ -2,9 +2,9 @@
 Ponto de Entrada CLI, Comandos de Console e Menu Interativo do Câmbio Global.
 
 Responsabilidades:
-- Parsear argumentos de linha de comando (CLI) para conversões diretas e rápidas.
+- Parsear argumentos de linha de comando (CLI) para conversões diretas, cestas e tendências.
 - Fornecer menu interativo rico com navegação por teclado e Rich Console.
-- Orquestrar integração assíncrona entre Matcher, Converter, APIs e Storage.
+- Orquestrar integração assíncrona entre Matcher, Converter, Trend Analyzer, APIs e Storage.
 - Executar servidor web FastAPI quando requisitado (--web).
 """
 
@@ -29,6 +29,7 @@ from src.models import (
     ConversionRecord,
 )
 from src.storage import StorageManager
+from src.trend import CurrencyTrendAnalyzer
 from src.ui.views import TerminalViews
 
 
@@ -47,6 +48,11 @@ class CambioGlobalCLI:
             frankfurter=self.frankfurter,
             coincap=self.coincap,
             world_bank=self.world_bank,
+        )
+        self.trend_analyzer = CurrencyTrendAnalyzer(
+            matcher=self.matcher,
+            frankfurter=self.frankfurter,
+            coincap=self.coincap,
         )
         self.storage = StorageManager()
 
@@ -107,6 +113,48 @@ class CambioGlobalCLI:
         except Exception as err:
             self.views.render_error(f"Erro inesperado durante a conversão: {str(err)}")
 
+    async def execute_basket(
+        self,
+        amount_str: str,
+        from_curr: str,
+        targets: Optional[List[str]] = None,
+    ) -> None:
+        """Executa e renderiza a conversão para uma cesta de moedas."""
+        try:
+            amount = Decimal(amount_str.replace(",", "."))
+            if not targets:
+                # Usa favoritos ou lista padrão
+                favs = self.storage.get_favorites()
+                targets = favs if favs else ["BRL", "EUR", "GBP", "JPY", "BTC", "ETH"]
+
+            with self.console.status("[cyan]Calculando conversões da cesta concorrentemente..."):
+                basket_res = await self.converter.convert_basket(
+                    amount=amount,
+                    from_currency=from_curr,
+                    target_currencies=targets,
+                )
+            self.views.render_basket_result(basket_res)
+        except Exception as err:
+            self.views.render_error(f"Erro ao processar cesta: {str(err)}")
+
+    async def show_trend(
+        self,
+        from_curr: str,
+        to_curr: str,
+        days: int = 30,
+    ) -> None:
+        """Executa e renderiza a análise de tendência e sparklines."""
+        try:
+            with self.console.status(f"[cyan]Analisando série histórica de {from_curr}/{to_curr} ({days} dias)..."):
+                trend_res = await self.trend_analyzer.analyze_trend(
+                    from_currency=from_curr,
+                    to_currency=to_curr,
+                    days=days,
+                )
+            self.views.render_trend_analysis(trend_res)
+        except Exception as err:
+            self.views.render_error(f"Erro ao analisar tendência: {str(err)}")
+
     async def show_rates(self, base_currency: str = "USD") -> None:
         """Exibe cotações fiat atualizadas."""
         try:
@@ -152,14 +200,16 @@ class CambioGlobalCLI:
             self.views.render_welcome()
             self.console.print("\n[bold cyan]Opções Disponíveis:[/bold cyan]")
             self.console.print("  [1] Converter Moedas (Fiat, Cripto ou PPP)")
-            self.console.print("  [2] Cotações Oficiais Fiat (Frankfurter / BCE)")
-            self.console.print("  [3] Criptoativos em Tempo Real (CoinCap)")
-            self.console.print("  [4] Ver Histórico de Conversões")
-            self.console.print("  [5] Moedas Favoritas")
-            self.console.print("  [6] Iniciar Servidor Web & Dashboard")
+            self.console.print("  [2] Cesta de Moedas Multi-Ativo (Basket)")
+            self.console.print("  [3] Análise de Tendência & Sparklines (Histórico)")
+            self.console.print("  [4] Cotações Oficiais Fiat (Frankfurter / BCE)")
+            self.console.print("  [5] Criptoativos em Tempo Real (CoinCap)")
+            self.console.print("  [6] Ver Histórico de Conversões")
+            self.console.print("  [7] Moedas Favoritas")
+            self.console.print("  [8] Iniciar Servidor Web & Dashboard SPA")
             self.console.print("  [0] Sair")
 
-            choice = Prompt.ask("\nEscolha uma opção", choices=["1", "2", "3", "4", "5", "6", "0"], default="1")
+            choice = Prompt.ask("\nEscolha uma opção", choices=["1", "2", "3", "4", "5", "6", "7", "8", "0"], default="1")
 
             if choice == "0":
                 self.console.print("[green]Até logo![/green]")
@@ -172,23 +222,36 @@ class CambioGlobalCLI:
                 await self.execute_conversion(amount_str, from_c, to_c, with_ppp=calc_ppp)
                 Prompt.ask("\nPressione Enter para continuar...")
             elif choice == "2":
+                amount_str = Prompt.ask("Digite o valor base", default="100")
+                from_c = Prompt.ask("Moeda de Origem (ex: USD)", default="USD")
+                targets_raw = Prompt.ask("Moedas de destino separadas por espaço (Enter para favoritos/padrão)", default="")
+                targets = targets_raw.split() if targets_raw.strip() else None
+                await self.execute_basket(amount_str, from_c, targets)
+                Prompt.ask("\nPressione Enter para continuar...")
+            elif choice == "3":
+                from_c = Prompt.ask("Moeda de Origem (ex: USD)", default="USD")
+                to_c = Prompt.ask("Moeda de Destino (ex: BRL)", default="BRL")
+                days = int(Prompt.ask("Quantidade de dias (ex: 7, 30, 90)", default="30"))
+                await self.show_trend(from_c, to_c, days=days)
+                Prompt.ask("\nPressione Enter para continuar...")
+            elif choice == "4":
                 base = Prompt.ask("Moeda base para cotações", default="USD")
                 await self.show_rates(base)
                 Prompt.ask("\nPressione Enter para continuar...")
-            elif choice == "3":
+            elif choice == "5":
                 limit = int(Prompt.ask("Quantidade de criptoativos", default="15"))
                 await self.show_crypto(limit)
                 Prompt.ask("\nPressione Enter para continuar...")
-            elif choice == "4":
+            elif choice == "6":
                 self.show_history()
                 Prompt.ask("\nPressione Enter para continuar...")
-            elif choice == "5":
+            elif choice == "7":
                 self.show_favorites()
                 sub = Prompt.ask("Deseja adicionar favorita? (Digite o código ou 'n')", default="n")
                 if sub.lower() != "n":
                     self.add_favorite(sub)
                 Prompt.ask("\nPressione Enter para continuar...")
-            elif choice == "6":
+            elif choice == "8":
                 start_web_server()
                 break
 
@@ -206,10 +269,13 @@ def main(args: Optional[List[str]] = None) -> int:
         args = sys.argv[1:]
 
     parser = argparse.ArgumentParser(
-        description="Câmbio Global - Conversor de Moedas Fiat, Criptoativos e Paridade de Poder de Compra (PPP)"
+        description="Câmbio Global - Conversor de Moedas Fiat, Criptoativos, Cestas e Análise de Tendências"
     )
     parser.add_argument("--convert", nargs=3, metavar=("AMOUNT", "FROM", "TO"), help="Converte um valor entre duas moedas")
     parser.add_argument("--ppp", action="store_true", help="Inclui análise de Paridade de Poder de Compra (PPP) do Banco Mundial")
+    parser.add_argument("--basket", nargs="+", metavar="ITEM", help="Converte valor para uma cesta de moedas: AMOUNT BASE [TARGETS...]")
+    parser.add_argument("--trend", nargs="+", metavar="ARG", help="Analisa tendência histórica: FROM TO [DAYS]")
+
     parser.add_argument("--rates", nargs="?", const="USD", metavar="BASE", help="Exibe cotações fiat atuais")
     parser.add_argument("--crypto", type=int, nargs="?", const=15, metavar="LIMIT", help="Exibe cotações de criptoativos")
     parser.add_argument("--history", type=int, nargs="?", const=20, metavar="LIMIT", help="Exibe histórico de conversões")
@@ -230,6 +296,20 @@ def main(args: Optional[List[str]] = None) -> int:
     if parsed.convert:
         amount_s, from_c, to_c = parsed.convert
         asyncio.run(cli.execute_conversion(amount_s, from_c, to_c, with_ppp=parsed.ppp))
+        return 0
+
+    if parsed.basket:
+        amount_s = parsed.basket[0]
+        from_c = parsed.basket[1] if len(parsed.basket) > 1 else "USD"
+        targets = parsed.basket[2:] if len(parsed.basket) > 2 else None
+        asyncio.run(cli.execute_basket(amount_s, from_c, targets))
+        return 0
+
+    if parsed.trend:
+        from_c = parsed.trend[0]
+        to_c = parsed.trend[1] if len(parsed.trend) > 1 else "BRL"
+        days = int(parsed.trend[2]) if len(parsed.trend) > 2 else 30
+        asyncio.run(cli.show_trend(from_c, to_c, days=days))
         return 0
 
     if parsed.rates:

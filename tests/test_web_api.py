@@ -3,7 +3,8 @@ Testes Unitários e de Integração da Web API (src/web/app.py).
 
 Cobre:
 - Handlers de Healthcheck, Lista de Moedas, Busca/Autocomplete.
-- Conversão Cambial Nominal (Fiat e Cripto) e Paridade de Poder de Compra (PPP).
+- Conversão Cambial Nominal (Fiat e Cripto), Cestas de Moedas e Paridade de Poder de Compra (PPP).
+- Análise de Tendências e Sparklines (/api/trend).
 - Histórico e Favoritos.
 - Tratamento de Códigos de Status HTTP e exceções de domínio.
 """
@@ -13,17 +14,23 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from src.models import (
+    BasketItemResult,
+    BasketResult,
     ConversionResult,
     CurrencyNotFoundError,
     ExchangeRate,
     PPPResult,
+    TrendAnalysis,
+    TrendPoint,
     UnsupportedPPPAssetError,
 )
 from src.web.app import (
+    BasketRequest,
     ConvertRequest,
     FavoriteRequest,
     PPPRequest,
     handle_add_favorite,
+    handle_basket,
     handle_convert,
     handle_get_crypto,
     handle_get_favorites,
@@ -34,6 +41,7 @@ from src.web.app import (
     handle_ppp,
     handle_remove_favorite,
     handle_search_currencies,
+    handle_trend,
 )
 
 
@@ -84,6 +92,53 @@ async def test_api_convert_success():
         assert res["currency_from"] == "USD"
         assert res["currency_to"] == "BRL"
         assert res["amount_to"] == 550.0
+
+
+@pytest.mark.asyncio
+async def test_api_basket_success():
+    """Testa endpoint de conversão em cesta."""
+    mock_basket = BasketResult(
+        amount_from=Decimal("100"),
+        currency_from="USD",
+        items=[
+            BasketItemResult(currency_to="BRL", amount_to=Decimal("550"), rate=Decimal("5.5")),
+            BasketItemResult(currency_to="EUR", amount_to=Decimal("90"), rate=Decimal("0.9")),
+        ],
+    )
+    with patch("src.web.app.converter.convert_basket", new_callable=AsyncMock) as mock_b:
+        mock_b.return_value = mock_basket
+
+        req = BasketRequest(amount=100.0, from_currency="USD", targets=["BRL", "EUR"])
+        res = await handle_basket(req)
+        assert res["currency_from"] == "USD"
+        assert len(res["items"]) == 2
+        assert res["items"][0]["currency_to"] == "BRL"
+
+
+@pytest.mark.asyncio
+async def test_api_trend_success():
+    """Testa endpoint de análise de tendência histórica."""
+    mock_trend = TrendAnalysis(
+        base_currency="USD",
+        target_currency="BRL",
+        days=30,
+        points=[TrendPoint(date="2026-08-01", rate=Decimal("5.0")), TrendPoint(date="2026-08-27", rate=Decimal("5.5"))],
+        start_rate=Decimal("5.0"),
+        end_rate=Decimal("5.5"),
+        min_rate=Decimal("5.0"),
+        max_rate=Decimal("5.5"),
+        avg_rate=Decimal("5.25"),
+        change_pct=Decimal("10.0"),
+        sparkline=" █",
+    )
+    with patch("src.web.app.trend_analyzer.analyze_trend", new_callable=AsyncMock) as mock_t:
+        mock_t.return_value = mock_trend
+
+        res = await handle_trend("USD", "BRL", days=30)
+        assert res["base_currency"] == "USD"
+        assert res["target_currency"] == "BRL"
+        assert res["change_pct"] == 10.0
+        assert res["sparkline"] == " █"
 
 
 @pytest.mark.asyncio

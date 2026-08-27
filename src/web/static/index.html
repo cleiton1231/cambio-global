@@ -75,7 +75,7 @@
 
         .main-container {
             width: 100%;
-            max-width: 900px;
+            max-width: 960px;
             display: flex;
             flex-direction: column;
             gap: 1.5rem;
@@ -83,16 +83,17 @@
 
         .tabs {
             display: flex;
-            gap: 0.5rem;
+            gap: 0.4rem;
             background: var(--card-bg);
             padding: 0.4rem;
             border-radius: 12px;
             border: 1px solid var(--card-border);
+            overflow-x: auto;
         }
 
         .tab-btn {
             flex: 1;
-            padding: 0.75rem 1rem;
+            padding: 0.75rem 0.75rem;
             background: transparent;
             border: none;
             color: var(--text-muted);
@@ -100,6 +101,8 @@
             border-radius: 8px;
             cursor: pointer;
             transition: all 0.2s;
+            white-space: nowrap;
+            font-size: 0.9rem;
         }
 
         .tab-btn.active {
@@ -212,15 +215,24 @@
             gap: 1rem;
         }
 
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+        }
+
         .stat-item {
             background: #1e293b;
             padding: 0.75rem;
             border-radius: 8px;
+            border: 1px solid var(--card-border);
         }
 
         .stat-label {
             font-size: 0.75rem;
             color: var(--text-muted);
+            margin-bottom: 0.25rem;
         }
 
         .stat-val {
@@ -254,6 +266,15 @@
         .tag-green { color: var(--accent); font-weight: 600; }
         .tag-red { color: var(--danger); font-weight: 600; }
 
+        canvas {
+            width: 100% !important;
+            height: 260px !important;
+            background: var(--input-bg);
+            border-radius: 8px;
+            border: 1px solid var(--card-border);
+            margin-top: 1rem;
+        }
+
         .hidden { display: none; }
     </style>
 </head>
@@ -261,12 +282,12 @@
 
     <header class="header">
         <h1>💱 Câmbio Global 🪙</h1>
-        <p>Conversor de Moedas Fiduciárias, Criptoativos e Paridade de Poder de Compra (PPP)</p>
+        <p>Conversor de Moedas Fiduciárias, Criptoativos, Cestas e Paridade de Poder de Compra (PPP)</p>
         <div class="badges">
             <span class="badge">BCE / Frankfurter API</span>
             <span class="badge">CoinCap API</span>
             <span class="badge">Banco Mundial (PPP)</span>
-            <span class="badge">Zero Auth</span>
+            <span class="badge">TTL Cache Ativo</span>
         </div>
     </header>
 
@@ -274,6 +295,8 @@
         <!-- Navegação por Abas -->
         <nav class="tabs">
             <button class="tab-btn active" onclick="switchTab('converter')">Conversor & PPP</button>
+            <button class="tab-btn" onclick="switchTab('basket')">Cesta de Moedas</button>
+            <button class="tab-btn" onclick="switchTab('trend')">Tendências & Gráficos</button>
             <button class="tab-btn" onclick="switchTab('rates')">Cotações Fiat</button>
             <button class="tab-btn" onclick="switchTab('crypto')">Criptoativos</button>
             <button class="tab-btn" onclick="switchTab('history')">Histórico</button>
@@ -321,7 +344,86 @@
             </div>
         </section>
 
-        <!-- Aba 2: Cotações Fiat -->
+        <!-- Aba 2: Cesta de Moedas (Basket) -->
+        <section id="tab-basket" class="card hidden">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="basketAmount">Quantia Base</label>
+                    <input type="number" id="basketAmount" value="100" min="0.01" step="any">
+                </div>
+                <div class="form-group">
+                    <label for="basketFrom">Moeda de Origem</label>
+                    <input type="text" id="basketFrom" value="USD">
+                </div>
+                <div class="form-group">
+                    <label for="basketTargets">Moedas Alvo (Separadas por espaço)</label>
+                    <input type="text" id="basketTargets" value="BRL EUR GBP JPY BTC ETH" placeholder="BRL EUR GBP JPY BTC ETH">
+                </div>
+            </div>
+
+            <button class="action-btn" onclick="performBasketConversion()">Calcular Cesta Concorrente</button>
+
+            <div class="table-container" style="margin-top: 1.5rem;">
+                <table id="basketTable">
+                    <thead>
+                        <tr>
+                            <th>Moeda Alvo</th>
+                            <th>Valor Convertido</th>
+                            <th>Taxa de Câmbio</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Aba 3: Tendências & Gráficos -->
+        <section id="tab-trend" class="card hidden">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="trendFrom">Moeda Base</label>
+                    <input type="text" id="trendFrom" value="USD">
+                </div>
+                <div class="form-group">
+                    <label for="trendTo">Moeda Destino</label>
+                    <input type="text" id="trendTo" value="BRL">
+                </div>
+                <div class="form-group">
+                    <label for="trendDays">Período (Dias)</label>
+                    <select id="trendDays">
+                        <option value="7">Últimos 7 dias</option>
+                        <option value="30" selected>Últimos 30 dias</option>
+                        <option value="90">Últimos 90 dias</option>
+                    </select>
+                </div>
+            </div>
+
+            <button class="action-btn" onclick="loadTrendChart()">Gerar Gráfico de Tendência</button>
+
+            <div id="trendMetrics" class="stat-grid hidden" style="margin-top: 1.5rem;">
+                <div class="stat-item">
+                    <div class="stat-label">Cotação Inicial</div>
+                    <div id="metricStart" class="stat-val">--</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Cotação Atual</div>
+                    <div id="metricEnd" class="stat-val">--</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Mín / Máx</div>
+                    <div id="metricMinMax" class="stat-val">--</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Variação no Período</div>
+                    <div id="metricChange" class="stat-val">--</div>
+                </div>
+            </div>
+
+            <canvas id="chartCanvas" class="hidden"></canvas>
+        </section>
+
+        <!-- Aba 4: Cotações Fiat -->
         <section id="tab-rates" class="card hidden">
             <div style="display: flex; gap: 1rem; align-items: flex-end; margin-bottom: 1rem;">
                 <div class="form-group" style="flex: 1;">
@@ -343,7 +445,7 @@
             </div>
         </section>
 
-        <!-- Aba 3: Criptoativos -->
+        <!-- Aba 5: Criptoativos -->
         <section id="tab-crypto" class="card hidden">
             <div class="table-container">
                 <table id="cryptoTable">
@@ -361,7 +463,7 @@
             </div>
         </section>
 
-        <!-- Aba 4: Histórico -->
+        <!-- Aba 6: Histórico -->
         <section id="tab-history" class="card hidden">
             <div class="table-container">
                 <table id="historyTable">
@@ -393,6 +495,7 @@
             if (tabId === 'rates') loadRates();
             if (tabId === 'crypto') loadCrypto();
             if (tabId === 'history') loadHistory();
+            if (tabId === 'trend') loadTrendChart();
         }
 
         async function performConversion() {
@@ -437,6 +540,135 @@
             } catch (err) {
                 alert(err.message);
             }
+        }
+
+        async function performBasketConversion() {
+            const amount = parseFloat(document.getElementById('basketAmount').value);
+            const fromC = document.getElementById('basketFrom').value.trim();
+            const targetsRaw = document.getElementById('basketTargets').value.trim();
+            const targets = targetsRaw ? targetsRaw.split(/\s+/) : null;
+
+            if (!amount || !fromC) {
+                alert('Preencha quantia e moeda de origem.');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/basket', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ amount, from_currency: fromC, targets })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Erro na cesta');
+
+                const tbody = document.querySelector('#basketTable tbody');
+                tbody.innerHTML = '';
+
+                data.items.forEach(item => {
+                    if (item.error) {
+                        tbody.innerHTML += `<tr>
+                            <td><strong>${item.currency_to}</strong></td>
+                            <td colspan="2" class="tag-red">${item.error}</td>
+                            <td><span class="tag-red">Erro</span></td>
+                        </tr>`;
+                    } else {
+                        const amt = item.amount_to.toLocaleString(undefined, {minimumFractionDigits: 2});
+                        tbody.innerHTML += `<tr>
+                            <td><strong>${item.currency_to}</strong></td>
+                            <td class="tag-green">${amt}</td>
+                            <td>${item.rate.toFixed(6)}</td>
+                            <td><span class="tag-green">OK</span></td>
+                        </tr>`;
+                    }
+                });
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        async function loadTrendChart() {
+            const fromC = document.getElementById('trendFrom').value.trim();
+            const toC = document.getElementById('trendTo').value.trim();
+            const days = parseInt(document.getElementById('trendDays').value, 10);
+
+            try {
+                const res = await fetch(`/api/trend?from_currency=${fromC}&to_currency=${toC}&days=${days}`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Erro ao carregar tendência');
+
+                document.getElementById('trendMetrics').classList.remove('hidden');
+                document.getElementById('metricStart').innerText = data.start_rate.toFixed(4);
+                document.getElementById('metricEnd').innerText = data.end_rate.toFixed(4);
+                document.getElementById('metricMinMax').innerText = `${data.min_rate.toFixed(4)} / ${data.max_rate.toFixed(4)}`;
+
+                const changeEl = document.getElementById('metricChange');
+                const changeClass = data.change_pct >= 0 ? 'tag-green' : 'tag-red';
+                changeEl.innerHTML = `<span class="${changeClass}">${data.change_pct >= 0 ? '+' : ''}${data.change_pct.toFixed(2)}%</span>`;
+
+                // Renderiza Canvas
+                const canvas = document.getElementById('chartCanvas');
+                canvas.classList.remove('hidden');
+                drawChart(canvas, data.points);
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        function drawChart(canvas, points) {
+            const ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+
+            const width = rect.width;
+            const height = rect.height;
+            const padding = 35;
+
+            ctx.clearRect(0, 0, width, height);
+
+            if (!points || points.length < 2) return;
+
+            const values = points.map(p => p.rate);
+            const min = Math.min(...values);
+            const max = Math.max(...values);
+            const span = (max - min) || 1;
+
+            // Linhas de Grade
+            ctx.strokeStyle = '#24304f';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(padding, padding);
+            ctx.lineTo(width - padding, padding);
+            ctx.moveTo(padding, height - padding);
+            ctx.lineTo(width - padding, height - padding);
+            ctx.stroke();
+
+            // Desenha Linha de Cotação
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+
+            points.forEach((p, idx) => {
+                const x = padding + (idx / (points.length - 1)) * (width - 2 * padding);
+                const y = height - padding - ((p.rate - min) / span) * (height - 2 * padding);
+                if (idx === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+
+            // Pontos inicial e final
+            const firstX = padding;
+            const firstY = height - padding - ((points[0].rate - min) / span) * (height - 2 * padding);
+            const lastX = width - padding;
+            const lastY = height - padding - ((points[points.length - 1].rate - min) / span) * (height - 2 * padding);
+
+            ctx.fillStyle = '#10b981';
+            ctx.beginPath();
+            ctx.arc(lastX, lastY, 5, 0, Math.PI * 2);
+            ctx.fill();
         }
 
         async function loadRates() {
