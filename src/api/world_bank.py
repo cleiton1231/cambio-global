@@ -21,14 +21,19 @@ class WorldBankClient(BaseAPIClient):
         self,
         base_url: str = "https://api.worldbank.org/v2",
         timeout: float = 10.0,
+        ttl_seconds: float = 86400.0,
+        max_stale_seconds: float = 604800.0,
         client: Optional[httpx.AsyncClient] = None,
     ) -> None:
         super().__init__(
             base_url=base_url,
             service_name="WorldBank",
             timeout=timeout,
+            ttl_seconds=ttl_seconds,
+            max_stale_seconds=max_stale_seconds,
             client=client,
         )
+
 
     async def get_ppp_conversion_factor(self, country_code: str) -> Optional[Dict[str, Any]]:
         """

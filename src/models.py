@@ -126,6 +126,7 @@ class ExchangeRate:
     rate: Decimal
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     source: str = "frankfurter"
+    is_stale: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -134,6 +135,7 @@ class ExchangeRate:
             "rate": float(self.rate),
             "timestamp": self.timestamp.isoformat(),
             "source": self.source,
+            "is_stale": self.is_stale,
         }
 
 
@@ -147,6 +149,7 @@ class ConversionResult:
     rate: Decimal
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     source: str = "direct"
+    is_stale: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -157,6 +160,7 @@ class ConversionResult:
             "rate": float(self.rate),
             "timestamp": self.timestamp.isoformat(),
             "source": self.source,
+            "is_stale": self.is_stale,
         }
 
 
@@ -219,4 +223,92 @@ class ConversionRecord:
             "ppp_equivalent": self.ppp_equivalent,
             "country_from": self.country_from,
             "country_to": self.country_to,
+        }
+
+
+# ============================================================================
+# Modelos para Séries Temporais e Tendências (Item 2)
+# ============================================================================
+
+@dataclass
+class TrendPoint:
+    """Ponto de uma série temporal de cotações."""
+    date: str
+    rate: Decimal
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "date": self.date,
+            "rate": float(self.rate),
+        }
+
+
+@dataclass
+class TrendAnalysis:
+    """Resultado da análise de tendência cambial e volatilidade."""
+    base_currency: str
+    target_currency: str
+    days: int
+    points: List[TrendPoint]
+    start_rate: Decimal
+    end_rate: Decimal
+    min_rate: Decimal
+    max_rate: Decimal
+    avg_rate: Decimal
+    change_pct: Decimal
+    sparkline: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "base_currency": self.base_currency,
+            "target_currency": self.target_currency,
+            "days": self.days,
+            "points": [p.to_dict() for p in self.points],
+            "start_rate": float(self.start_rate),
+            "end_rate": float(self.end_rate),
+            "min_rate": float(self.min_rate),
+            "max_rate": float(self.max_rate),
+            "avg_rate": float(self.avg_rate),
+            "change_pct": float(self.change_pct),
+            "sparkline": self.sparkline,
+        }
+
+
+# ============================================================================
+# Modelos para Cesta de Moedas / Basket Converter (Item 3)
+# ============================================================================
+
+@dataclass
+class BasketItemResult:
+    """Resultado da conversão de um item individual dentro de uma cesta."""
+    currency_to: str
+    amount_to: Optional[Decimal] = None
+    rate: Optional[Decimal] = None
+    is_stale: bool = False
+    error: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "currency_to": self.currency_to,
+            "amount_to": float(self.amount_to) if self.amount_to is not None else None,
+            "rate": float(self.rate) if self.rate is not None else None,
+            "is_stale": self.is_stale,
+            "error": self.error,
+        }
+
+
+@dataclass
+class BasketResult:
+    """Resultado agregado de conversão de cesta de moedas."""
+    amount_from: Decimal
+    currency_from: str
+    items: List[BasketItemResult]
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "amount_from": float(self.amount_from),
+            "currency_from": self.currency_from,
+            "items": [item.to_dict() for item in self.items],
+            "timestamp": self.timestamp.isoformat(),
         }

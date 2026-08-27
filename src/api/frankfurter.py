@@ -22,14 +22,19 @@ class FrankfurterClient(BaseAPIClient):
         self,
         base_url: str = "https://api.frankfurter.app",
         timeout: float = 10.0,
+        ttl_seconds: float = 3600.0,
+        max_stale_seconds: float = 86400.0,
         client: Optional[httpx.AsyncClient] = None,
     ) -> None:
         super().__init__(
             base_url=base_url,
             service_name="Frankfurter",
             timeout=timeout,
+            ttl_seconds=ttl_seconds,
+            max_stale_seconds=max_stale_seconds,
             client=client,
         )
+
 
     async def get_latest_rates(
         self,

@@ -4,6 +4,7 @@ Módulo de Integração com a API CoinCap v2 (Zero Auth).
 Responsabilidades:
 - Obter cotações em tempo real de criptoativos em USD.
 - Consultar ranking e volume de mercado de criptomoedas.
+- Consultar séries históricas (velas/candles diários) para análise de tendências.
 - Listar taxas de conversão de ativos relativas ao USD.
 """
 
@@ -22,12 +23,16 @@ class CoinCapClient(BaseAPIClient):
         self,
         base_url: str = "https://api.coincap.io/v2",
         timeout: float = 10.0,
+        ttl_seconds: float = 30.0,
+        max_stale_seconds: float = 600.0,
         client: Optional[httpx.AsyncClient] = None,
     ) -> None:
         super().__init__(
             base_url=base_url,
             service_name="CoinCap",
             timeout=timeout,
+            ttl_seconds=ttl_seconds,
+            max_stale_seconds=max_stale_seconds,
             client=client,
         )
 
@@ -46,13 +51,16 @@ class CoinCapClient(BaseAPIClient):
             "LINK": "chainlink",
         }
 
+    def _resolve_asset_id(self, asset_id_or_ticker: str) -> str:
+        """Resolve ticker para o ID canônico da CoinCap."""
+        key = asset_id_or_ticker.upper()
+        return self._ticker_to_id.get(key, asset_id_or_ticker.lower())
+
     async def get_asset(self, asset_id_or_ticker: str) -> Dict[str, Any]:
         """
         Obtém detalhes em tempo real de um criptoativo específico (ex: 'bitcoin' ou 'BTC').
         """
-        key = asset_id_or_ticker.upper()
-        asset_id = self._ticker_to_id.get(key, asset_id_or_ticker.lower())
-
+        asset_id = self._resolve_asset_id(asset_id_or_ticker)
         data = await self._request(f"assets/{asset_id}")
         return data.get("data", {})
 
@@ -62,6 +70,27 @@ class CoinCapClient(BaseAPIClient):
         """
         params = {"limit": min(limit, 2000)}
         data = await self._request("assets", params=params)
+        return data.get("data", [])
+
+    async def get_historical_rates(
+        self,
+        asset_id_or_ticker: str,
+        interval: str = "d1",
+        start_ms: Optional[int] = None,
+        end_ms: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtém a série histórica de preços diários de um criptoativo.
+        Endpoint: /assets/{id}/history?interval=d1
+        """
+        asset_id = self._resolve_asset_id(asset_id_or_ticker)
+        params: Dict[str, Any] = {"interval": interval}
+        if start_ms is not None:
+            params["start"] = start_ms
+        if end_ms is not None:
+            params["end"] = end_ms
+
+        data = await self._request(f"assets/{asset_id}/history", params=params)
         return data.get("data", [])
 
     async def get_rate_in_usd(self, ticker: str) -> ExchangeRate:
@@ -78,6 +107,7 @@ class CoinCapClient(BaseAPIClient):
             target_currency="USD",
             rate=Decimal(str(price_usd_str)),
             source="coincap",
+            is_stale=self.last_response_stale,
         )
 
     async def get_rates(self) -> List[Dict[str, Any]]:
