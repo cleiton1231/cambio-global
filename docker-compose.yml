@@ -1,0 +1,24 @@
+version: "3.8"
+
+services:
+  cambio-global:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cambio-global-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - WEB_HOST=0.0.0.0
+      - WEB_PORT=8000
+      - STORAGE_DIR=/app/data
+      - HTTP_TIMEOUT_SECONDS=10.0
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
