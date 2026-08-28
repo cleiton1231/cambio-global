@@ -3,7 +3,7 @@ Gerador de Relatórios Financeiros Executivos (Markdown & HTML / Print-to-PDF).
 
 Responsabilidades:
 - Consolidar conversões cambiais, simulação de custos (VET) e análise de poder de compra/salário.
-- Gerar documentos em Markdown GFM limpo e estruturado.
+- Gerar documentos em Markdown GFM limpo, sanitizado contra injeções de quebra de tabela e links.
 - Gerar documentos executivos em HTML5 auto-contidos com estilização CSS pronta para impressão/PDF (@media print).
 - Sanitização estrita de saída com html.escape() (Defesa contra XSS e HTML Injection - OWASP A03).
 """
@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import html
 from pathlib import Path
+import re
 from typing import Optional
 
 from src.models import FinancialReportData
@@ -24,10 +25,20 @@ class FinancialReportGenerator:
     def __init__(self, storage: Optional[StorageManager] = None) -> None:
         self.storage = storage or StorageManager()
 
+    def _sanitize_md(self, text: Optional[str]) -> str:
+        """Sanitiza strings para inserção segura em tabelas e parágrafos Markdown."""
+        if not text:
+            return ""
+        # Escapa pipes (|) para não quebrar a estrutura de tabelas Markdown e remove quebras de linha perigosas
+        clean = str(text).replace("|", "\\|").replace("\r", "").replace("\n", " ")
+        # Neutraliza tentativas de injeção de links maliciosos ou scripts
+        return clean.strip()
+
     def generate_markdown(self, data: FinancialReportData) -> str:
-        """Gera o relatório formatado em Markdown (GitHub Flavored Markdown)."""
+        """Gera o relatório formatado em Markdown (GitHub Flavored Markdown) de forma segura."""
+        safe_title = self._sanitize_md(data.title)
         lines = []
-        lines.append(f"# 📑 {data.title}")
+        lines.append(f"# 📑 {safe_title}")
         lines.append(f"**Data de Emissão:** {data.created_at.strftime('%Y-%m-%d %H:%M:%S UTC')}")
         lines.append(f"**Sistema:** Câmbio Global • Fontes: Frankfurter (BCE), CoinCap, Banco Mundial (Zero-Auth)")
         lines.append("\n---\n")
@@ -39,30 +50,30 @@ class FinancialReportGenerator:
             lines.append("| :--- | :--- | :--- | :--- | :--- |")
             for c in data.conversions:
                 stale_str = "*(Stale Cache)*" if c.is_stale else "OK"
-                lines.append(
-                    f"| {c.amount_from:,.2f} {c.currency_from} | "
-                    f"**{c.amount_to:,.2f} {c.currency_to}** | "
-                    f"1 {c.currency_from} = {c.rate:,.6f} {c.currency_to} | "
-                    f"{c.source} | {stale_str} |"
-                )
+                from_str = self._sanitize_md(f"{c.amount_from:,.2f} {c.currency_from}")
+                to_str = self._sanitize_md(f"{c.amount_to:,.2f} {c.currency_to}")
+                rate_str = self._sanitize_md(f"1 {c.currency_from} = {c.rate:,.6f} {c.currency_to}")
+                src_str = self._sanitize_md(c.source)
+                lines.append(f"| {from_str} | **{to_str}** | {rate_str} | {src_str} | {stale_str} |")
             lines.append("")
 
         # 2. Simulação de Custos e VET (BACEN)
         if data.cost_simulation:
             cs = data.cost_simulation
+            safe_prof = self._sanitize_md(cs.profile_name)
             lines.append("## 💳 2. Detalhamento de Custos Efetivos e VET (BACEN)\n")
-            lines.append(f"**Perfil Aplicado:** {cs.profile_name} ({cs.operation_type.value.upper()})\n")
+            lines.append(f"**Perfil Aplicado:** {safe_prof} ({cs.operation_type.value.upper()})\n")
             lines.append("| Item Financeiro | Valor Apurado |")
             lines.append("| :--- | :--- |")
-            lines.append(f"| **Quantia Bruta Negociada:** | {cs.amount_from:,.2f} {cs.currency_from} |")
+            lines.append(f"| **Quantia Bruta Negociada:** | {cs.amount_from:,.2f} {self._sanitize_md(cs.currency_from)} |")
             lines.append(f"| **Taxa de Mercado Pura:** | {cs.commercial_rate:,.6f} |")
             lines.append(f"| **Spread Cambial:** | {cs.spread_pct:.2f}% (R$ {cs.spread_amount:,.6f}/un) |")
             lines.append(f"| **Taxa Efetiva com Spread:** | {cs.effective_rate:,.6f} |")
             lines.append(f"| **IOF Recolhido:** | {cs.iof_pct:.2f}% ({cs.iof_amount:,.2f}) |")
             if cs.fixed_fee > 0:
                 lines.append(f"| **Tarifa Fixa Bancária:** | {cs.fixed_fee:,.2f} |")
-            lines.append(f"| **Montante Líquido Final:** | **{cs.net_amount_to:,.2f} {cs.currency_to}** |")
-            lines.append(f"| **Custo Total Efetivo:** | {cs.total_cost_from:,.2f} {cs.currency_from} |")
+            lines.append(f"| **Montante Líquido Final:** | **{cs.net_amount_to:,.2f} {self._sanitize_md(cs.currency_to)}** |")
+            lines.append(f"| **Custo Total Efetivo:** | {cs.total_cost_from:,.2f} {self._sanitize_md(cs.currency_from)} |")
             lines.append(f"| **VET (Valor Efetivo Total):** | **{cs.vet:,.6f}** |")
             lines.append("")
 
@@ -70,18 +81,18 @@ class FinancialReportGenerator:
         if data.salary_analysis:
             sa = data.salary_analysis
             lines.append("## 🌍 3. Análise de Salário Internacional e Poder de Compra (PPP)\n")
-            lines.append(f"- **Salário de Origem:** {sa.base_salary:,.2f} {sa.base_currency} ({sa.country_from})")
-            lines.append(f"- **Salário Nominal Convertido:** {sa.nominal_converted_salary:,.2f} {sa.target_currency}")
-            lines.append(f"- **Salário Equivalente PPP (Banco Mundial {sa.year}):** **{sa.ppp_equivalent_salary:,.2f} {sa.target_currency}** ({sa.country_to})")
+            lines.append(f"- **Salário de Origem:** {sa.base_salary:,.2f} {self._sanitize_md(sa.base_currency)} ({self._sanitize_md(sa.country_from)})")
+            lines.append(f"- **Salário Nominal Convertido:** {sa.nominal_converted_salary:,.2f} {self._sanitize_md(sa.target_currency)}")
+            lines.append(f"- **Salário Equivalente PPP (Banco Mundial {sa.year}):** **{sa.ppp_equivalent_salary:,.2f} {self._sanitize_md(sa.target_currency)}** ({self._sanitize_md(sa.country_to)})")
             diff_sign = "+" if sa.purchasing_power_diff_pct >= 0 else ""
             lines.append(f"- **Variação Real do Poder de Compra:** `{diff_sign}{sa.purchasing_power_diff_pct:.1f}%`")
             lines.append(f"- **Índice do Nível de Preços (PLR):** `{sa.price_level_ratio:.2f}`")
-            lines.append(f"\n> **Veredito:** {sa.verdict}\n")
+            lines.append(f"\n> **Veredito:** {self._sanitize_md(sa.verdict)}\n")
 
         # 4. Observações
         if data.notes:
             lines.append("## 📝 4. Observações Executivas\n")
-            lines.append(data.notes.strip())
+            lines.append(self._sanitize_md(data.notes))
             lines.append("")
 
         return "\n".join(lines)

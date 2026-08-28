@@ -91,13 +91,19 @@ class BaseAPIClient:
             return data
 
         # 2. Blindagem Anti-SSRF e Path Traversal no endpoint
-        clean_endpoint = str(endpoint).strip().lstrip("/")
-        if "://" in clean_endpoint or clean_endpoint.startswith("//") or clean_endpoint.startswith("\\\\"):
+        raw_endpoint = str(endpoint).strip()
+        if (
+            "://" in raw_endpoint
+            or raw_endpoint.startswith("//")
+            or raw_endpoint.startswith("\\\\")
+            or "\\\\" in raw_endpoint
+        ):
             raise APIConnectionError(
                 service=self.service_name,
                 message=f"Tentativa de desvio de rota ou SSRF detectada no endpoint: '{endpoint}'",
             )
 
+        clean_endpoint = raw_endpoint.lstrip("/")
         parts = clean_endpoint.split("/")
         if ".." in parts:
             raise APIConnectionError(
@@ -106,6 +112,7 @@ class BaseAPIClient:
             )
 
         url = f"{self.base_url}/{clean_endpoint}" if clean_endpoint else self.base_url
+
 
         # Validação do Host de Destino
         base_host = httpx.URL(self.base_url).host

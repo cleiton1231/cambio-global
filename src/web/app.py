@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 import uuid
 from datetime import datetime, timezone
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.api.coincap import CoinCapClient
 from src.api.frankfurter import FrankfurterClient
@@ -46,59 +46,113 @@ from src.storage import StorageManager
 from src.trend import CurrencyTrendAnalyzer
 
 # ============================================================================
-# Schemas Pydantic para Requisições e Respostas
+# Schemas Pydantic Estritos com Decimal (Governança e Precisão Financeira)
 # ============================================================================
 
 class ConvertRequest(BaseModel):
-    amount: float = Field(..., gt=0, description="Quantia monetária a converter (> 0)")
-    from_currency: str = Field(..., description="Moeda ou símbolo de origem (ex: USD, R$, BTC)")
-    to_currency: str = Field(..., description="Moeda ou símbolo de destino (ex: BRL, EUR, ETH)")
+    amount: Decimal = Field(..., gt=0, le=Decimal("1e18"), description="Quantia monetária a converter (> 0)")
+    from_currency: str = Field(..., max_length=50, description="Moeda ou símbolo de origem (ex: USD, R$, BTC)")
+    to_currency: str = Field(..., max_length=50, description="Moeda ou símbolo de destino (ex: BRL, EUR, ETH)")
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def validate_finite_amount(cls, v: Any) -> Decimal:
+        if isinstance(v, (float, str)):
+            s = str(v).lower().strip()
+            if s in ("nan", "snan", "inf", "-inf", "+inf", "infinity", "-infinity", "+infinity"):
+                raise ValueError("Quantia monetária inválida (não-finita).")
+        return Decimal(str(v))
 
 
 class BasketRequest(BaseModel):
-    amount: float = Field(..., gt=0, description="Quantia monetária a converter (> 0)")
-    from_currency: str = Field(..., description="Moeda base de origem (ex: USD, EUR)")
-    targets: Optional[List[str]] = Field(None, description="Lista de moedas alvo (opcional; usa favoritos se omitido)")
+    amount: Decimal = Field(..., gt=0, le=Decimal("1e18"), description="Quantia monetária a converter (> 0)")
+    from_currency: str = Field(..., max_length=50, description="Moeda base de origem (ex: USD, EUR)")
+    targets: Optional[List[str]] = Field(None, max_length=50, description="Lista de moedas alvo (opcional)")
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def validate_finite_amount(cls, v: Any) -> Decimal:
+        if isinstance(v, (float, str)):
+            s = str(v).lower().strip()
+            if s in ("nan", "snan", "inf", "-inf", "+inf", "infinity", "-infinity", "+infinity"):
+                raise ValueError("Quantia monetária inválida (não-finita).")
+        return Decimal(str(v))
 
 
 class CostSimulateRequest(BaseModel):
-    amount: float = Field(..., gt=0, description="Quantia monetária negociada (> 0)")
-    from_currency: str = Field(..., description="Moeda de origem (ex: BRL, USD)")
-    to_currency: str = Field(..., description="Moeda de destino (ex: USD, EUR)")
-    profile_key: Optional[str] = Field("global_account", description="Perfil de custo (global_account, credit_card, investment, inbound_salary, crypto_p2p)")
-    custom_iof: Optional[float] = Field(None, ge=0, description="Alíquota customizada de IOF em %")
-    custom_spread: Optional[float] = Field(None, ge=0, description="Spread customizado em %")
-    custom_fee: Optional[float] = Field(None, ge=0, description="Tarifa fixa bancária")
-    operation_type: Optional[str] = Field(None, description="Direção: outbound ou inbound")
+    amount: Decimal = Field(..., gt=0, le=Decimal("1e18"), description="Quantia monetária negociada (> 0)")
+    from_currency: str = Field(..., max_length=50, description="Moeda de origem (ex: BRL, USD)")
+    to_currency: str = Field(..., max_length=50, description="Moeda de destino (ex: USD, EUR)")
+    profile_key: Optional[str] = Field("global_account", max_length=50, description="Perfil de custo")
+    custom_iof: Optional[Decimal] = Field(None, ge=0, lt=100, description="Alíquota customizada de IOF em %")
+    custom_spread: Optional[Decimal] = Field(None, ge=0, lt=100, description="Spread customizado em %")
+    custom_fee: Optional[Decimal] = Field(None, ge=0, le=Decimal("1e12"), description="Tarifa fixa bancária")
+    operation_type: Optional[str] = Field(None, max_length=20, description="Direção: outbound ou inbound")
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def validate_finite_amount(cls, v: Any) -> Decimal:
+        if isinstance(v, (float, str)):
+            s = str(v).lower().strip()
+            if s in ("nan", "snan", "inf", "-inf", "+inf", "infinity", "-infinity", "+infinity"):
+                raise ValueError("Quantia monetária inválida (não-finita).")
+        return Decimal(str(v))
 
 
 class SalaryRequest(BaseModel):
-    base_salary: float = Field(..., gt=0, description="Salário base atual (> 0)")
-    base_currency: str = Field(..., description="Moeda de origem do salário (ex: USD, EUR)")
-    target_currency: str = Field(..., description="Moeda de destino (ex: BRL, EUR)")
-    country_from: Optional[str] = Field(None, description="Código ISO-3 opcional do país de origem (ex: USA, BRA)")
-    country_to: Optional[str] = Field(None, description="Código ISO-3 opcional do país de destino (ex: PRT, DEU)")
+    base_salary: Decimal = Field(..., gt=0, le=Decimal("1e18"), description="Salário base atual (> 0)")
+    base_currency: str = Field(..., max_length=50, description="Moeda de origem do salário (ex: USD, EUR)")
+    target_currency: str = Field(..., max_length=50, description="Moeda de destino (ex: BRL, EUR)")
+    country_from: Optional[str] = Field(None, max_length=10, description="Código ISO-3 opcional do país de origem")
+    country_to: Optional[str] = Field(None, max_length=10, description="Código ISO-3 opcional do país de destino")
+
+    @field_validator("base_salary", mode="before")
+    @classmethod
+    def validate_finite_salary(cls, v: Any) -> Decimal:
+        if isinstance(v, (float, str)):
+            s = str(v).lower().strip()
+            if s in ("nan", "snan", "inf", "-inf", "+inf", "infinity", "-infinity", "+infinity"):
+                raise ValueError("Salário base inválido (não-finito).")
+        return Decimal(str(v))
 
 
 class ReportRequest(BaseModel):
-    title: str = Field("Relatório Financeiro Executivo", description="Título do documento")
-    amount: float = Field(1000.0, gt=0, description="Quantia de referência")
-    from_currency: str = Field("USD", description="Moeda de origem")
-    to_currency: str = Field("BRL", description="Moeda de destino")
-    format: str = Field("html", description="Formato de saída: html ou md")
-    notes: Optional[str] = Field(None, description="Notas executivas opcionais")
+    title: str = Field("Relatório Financeiro Executivo", max_length=200, description="Título do documento")
+    amount: Decimal = Field(Decimal("1000.0"), gt=0, le=Decimal("1e18"), description="Quantia de referência")
+    from_currency: str = Field("USD", max_length=50, description="Moeda de origem")
+    to_currency: str = Field("BRL", max_length=50, description="Moeda de destino")
+    format: str = Field("html", max_length=10, description="Formato de saída: html ou md")
+    notes: Optional[str] = Field(None, max_length=5000, description="Notas executivas opcionais")
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def validate_finite_amount(cls, v: Any) -> Decimal:
+        if isinstance(v, (float, str)):
+            s = str(v).lower().strip()
+            if s in ("nan", "snan", "inf", "-inf", "+inf", "infinity", "-infinity", "+infinity"):
+                raise ValueError("Quantia monetária inválida (não-finita).")
+        return Decimal(str(v))
 
 
 class PPPRequest(BaseModel):
-    amount: float = Field(..., gt=0, description="Quantia monetária a converter (> 0)")
-    from_currency: str = Field(..., description="Moeda fiduciária de origem (ex: USD, BRL)")
-    to_currency: str = Field(..., description="Moeda fiduciária de destino (ex: BRL, EUR)")
-    country_from: Optional[str] = Field(None, description="Código ISO-3 opcional do país de origem (ex: USA, BRA)")
-    country_to: Optional[str] = Field(None, description="Código ISO-3 opcional do país de destino (ex: DEU, FRA)")
+    amount: Decimal = Field(..., gt=0, le=Decimal("1e18"), description="Quantia monetária a converter (> 0)")
+    from_currency: str = Field(..., max_length=50, description="Moeda fiduciária de origem")
+    to_currency: str = Field(..., max_length=50, description="Moeda fiduciária de destino")
+    country_from: Optional[str] = Field(None, max_length=10, description="Código ISO-3 opcional do país de origem")
+    country_to: Optional[str] = Field(None, max_length=10, description="Código ISO-3 opcional do país de destino")
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def validate_finite_amount(cls, v: Any) -> Decimal:
+        if isinstance(v, (float, str)):
+            s = str(v).lower().strip()
+            if s in ("nan", "snan", "inf", "-inf", "+inf", "infinity", "-infinity", "+infinity"):
+                raise ValueError("Quantia monetária inválida (não-finita).")
+        return Decimal(str(v))
 
 
 class FavoriteRequest(BaseModel):
-    currency_code: str = Field(..., description="Código ou símbolo da moeda (ex: USD, BTC)")
+    currency_code: str = Field(..., max_length=50, description="Código ou símbolo da moeda (ex: USD, BTC)")
 
 
 # ============================================================================
@@ -171,8 +225,7 @@ async def handle_trend(from_currency: str, to_currency: str, days: int = 30) -> 
 
 
 async def handle_convert(req: ConvertRequest) -> Dict[str, Any]:
-    amount_dec = Decimal(str(req.amount))
-    result = await converter.convert(amount_dec, req.from_currency, req.to_currency)
+    result = await converter.convert(req.amount, req.from_currency, req.to_currency)
 
     rec = ConversionRecord(
         id=str(uuid.uuid4())[:8],
@@ -188,29 +241,24 @@ async def handle_convert(req: ConvertRequest) -> Dict[str, Any]:
 
 
 async def handle_simulate(req: CostSimulateRequest) -> Dict[str, Any]:
-    amount_dec = Decimal(str(req.amount))
-    iof_dec = Decimal(str(req.custom_iof)) if req.custom_iof is not None else None
-    spread_dec = Decimal(str(req.custom_spread)) if req.custom_spread is not None else None
-    fee_dec = Decimal(str(req.custom_fee)) if req.custom_fee is not None else None
     op_type = OperationType(req.operation_type.lower()) if req.operation_type else None
 
     result = await cost_simulator.simulate(
-        amount=amount_dec,
+        amount=req.amount,
         from_currency=req.from_currency,
         to_currency=req.to_currency,
         profile_key=req.profile_key,
-        custom_iof=iof_dec,
-        custom_spread=spread_dec,
-        custom_fee=fee_dec,
+        custom_iof=req.custom_iof,
+        custom_spread=req.custom_spread,
+        custom_fee=req.custom_fee,
         operation_type=op_type,
     )
     return result.to_dict()
 
 
 async def handle_salary(req: SalaryRequest) -> Dict[str, Any]:
-    salary_dec = Decimal(str(req.base_salary))
     result = await salary_calculator.calculate_salary_equivalency(
-        base_salary=salary_dec,
+        base_salary=req.base_salary,
         base_currency=req.base_currency,
         target_currency=req.target_currency,
         country_from=req.country_from,
@@ -220,12 +268,11 @@ async def handle_salary(req: SalaryRequest) -> Dict[str, Any]:
 
 
 async def handle_report(req: ReportRequest) -> Dict[str, Any]:
-    amount_dec = Decimal(str(req.amount))
-    conv_res = await converter.convert(amount_dec, req.from_currency, req.to_currency)
-    sim_res = await cost_simulator.simulate(amount_dec, req.from_currency, req.to_currency, profile_key="global_account")
+    conv_res = await converter.convert(req.amount, req.from_currency, req.to_currency)
+    sim_res = await cost_simulator.simulate(req.amount, req.from_currency, req.to_currency, profile_key="global_account")
     sal_res = None
     try:
-        sal_res = await salary_calculator.calculate_salary_equivalency(amount_dec, req.from_currency, req.to_currency)
+        sal_res = await salary_calculator.calculate_salary_equivalency(req.amount, req.from_currency, req.to_currency)
     except Exception:
         pass
 
@@ -251,14 +298,13 @@ async def handle_report(req: ReportRequest) -> Dict[str, Any]:
 
 
 async def handle_basket(req: BasketRequest) -> Dict[str, Any]:
-    amount_dec = Decimal(str(req.amount))
     targets = req.targets
     if not targets:
         favs = storage.get_favorites()
         targets = favs if favs else ["BRL", "EUR", "GBP", "JPY", "BTC", "ETH"]
 
     result = await converter.convert_basket(
-        amount=amount_dec,
+        amount=req.amount,
         from_currency=req.from_currency,
         target_currencies=targets,
     )
@@ -266,9 +312,8 @@ async def handle_basket(req: BasketRequest) -> Dict[str, Any]:
 
 
 async def handle_ppp(req: PPPRequest) -> Dict[str, Any]:
-    amount_dec = Decimal(str(req.amount))
     conv_res, ppp_res = await converter.convert_with_ppp(
-        amount=amount_dec,
+        amount=req.amount,
         from_query=req.from_currency,
         to_query=req.to_currency,
         country_from=req.country_from,
@@ -326,7 +371,7 @@ async def handle_remove_favorite(code: str) -> Dict[str, Any]:
 try:
     from fastapi import FastAPI, HTTPException, Query
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import FileResponse, HTMLResponse
+    from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
 
     app = FastAPI(
@@ -337,11 +382,12 @@ try:
         redoc_url="/redoc",
     )
 
+    # Configuração Segura de CORS (sem allow_credentials quando wildcard)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
 
@@ -361,7 +407,7 @@ try:
         return await handle_list_currencies(asset_type)
 
     @app.get("/api/search")
-    async def api_search(q: str = Query(..., min_length=1), limit: int = 5) -> List[Dict[str, Any]]:
+    async def api_search(q: str = Query(..., min_length=1, max_length=100), limit: int = 5) -> List[Dict[str, Any]]:
         return await handle_search_currencies(q, limit)
 
     @app.get("/api/rates")
@@ -369,14 +415,14 @@ try:
         try:
             return await handle_get_rates(base)
         except Exception as e:
-            raise HTTPException(status_code=502, detail=str(e))
+            raise HTTPException(status_code=502, detail="Falha ao obter cotações da API do Banco Central Europeu.")
 
     @app.get("/api/crypto")
     async def api_crypto(limit: int = 20) -> List[Dict[str, Any]]:
         try:
             return await handle_get_crypto(limit)
         except Exception as e:
-            raise HTTPException(status_code=502, detail=str(e))
+            raise HTTPException(status_code=502, detail="Falha ao obter cotações da API da CoinCap.")
 
     @app.get("/api/trend")
     async def api_trend(from_currency: str = "USD", to_currency: str = "BRL", days: int = 30) -> Dict[str, Any]:
@@ -386,8 +432,8 @@ try:
             raise HTTPException(status_code=404, detail=str(e))
         except (ValueError, CambioGlobalError) as e:
             raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        except Exception:
+            raise HTTPException(status_code=500, detail="Erro interno ao analisar série histórica de tendência.")
 
     @app.post("/api/convert")
     async def api_convert(req: ConvertRequest) -> Dict[str, Any]:
@@ -397,8 +443,8 @@ try:
             raise HTTPException(status_code=404, detail=str(e))
         except (ValueError, CambioGlobalError) as e:
             raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        except Exception:
+            raise HTTPException(status_code=500, detail="Erro interno ao realizar conversão cambial.")
 
     @app.post("/api/simulate")
     async def api_simulate(req: CostSimulateRequest) -> Dict[str, Any]:
@@ -408,8 +454,8 @@ try:
             raise HTTPException(status_code=404, detail=str(e))
         except (ValueError, CambioGlobalError) as e:
             raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        except Exception:
+            raise HTTPException(status_code=500, detail="Erro interno ao simular custos e VET.")
 
     @app.post("/api/salary")
     async def api_salary(req: SalaryRequest) -> Dict[str, Any]:
@@ -421,8 +467,8 @@ try:
             raise HTTPException(status_code=404, detail=str(e))
         except (ValueError, CambioGlobalError) as e:
             raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        except Exception:
+            raise HTTPException(status_code=500, detail="Erro interno ao calcular salário internacional.")
 
     @app.post("/api/report")
     async def api_report(req: ReportRequest) -> Dict[str, Any]:
@@ -432,8 +478,8 @@ try:
             raise HTTPException(status_code=404, detail=str(e))
         except (ValueError, CambioGlobalError) as e:
             raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        except Exception:
+            raise HTTPException(status_code=500, detail="Erro interno ao gerar relatório financeiro.")
 
     @app.post("/api/basket")
     async def api_basket(req: BasketRequest) -> Dict[str, Any]:
@@ -443,8 +489,8 @@ try:
             raise HTTPException(status_code=404, detail=str(e))
         except (ValueError, CambioGlobalError) as e:
             raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        except Exception:
+            raise HTTPException(status_code=500, detail="Erro interno ao processar cesta de moedas.")
 
     @app.post("/api/ppp")
     async def api_ppp(req: PPPRequest) -> Dict[str, Any]:
@@ -456,8 +502,8 @@ try:
             raise HTTPException(status_code=404, detail=str(e))
         except (ValueError, CambioGlobalError) as e:
             raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        except Exception:
+            raise HTTPException(status_code=500, detail="Erro interno ao calcular PPP.")
 
     @app.get("/api/history")
     async def api_history(limit: int = 50) -> List[Dict[str, Any]]:

