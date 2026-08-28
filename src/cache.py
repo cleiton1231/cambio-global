@@ -6,8 +6,11 @@ Responsabilidades:
 - Suporte a TTL (Time-To-Live) estrito e janela de tolerância para Stale Cache.
 - Degradação graciosa em caso de indisponibilidade de APIs de terceiros.
 - Rastreamento de métricas de hit/miss/stale.
+- Isolamento total de referências (Anti-Cache Poisoning) com cópias profundas (copy.deepcopy).
+- Pruning automático de entradas expiradas além de max_stale.
 """
 
+import copy
 import threading
 import time
 from typing import Any, Dict, Optional, Tuple
@@ -23,7 +26,7 @@ class CachedEntry:
         max_stale_seconds: float = 0.0,
     ) -> None:
         now = time.time()
-        self.data = data
+        self.data = copy.deepcopy(data)
         self.cached_at = now
         self.expires_at = now + ttl_seconds
         self.max_stale_until = now + ttl_seconds + max_stale_seconds
@@ -39,7 +42,7 @@ class CachedEntry:
 
 
 class MemoryCache:
-    """Gerenciador de cache em memória thread-safe."""
+    """Gerenciador de cache em memória thread-safe com isolamento de mutação."""
 
     def __init__(self) -> None:
         self._entries: Dict[str, CachedEntry] = {}
@@ -51,7 +54,7 @@ class MemoryCache:
 
     def get(self, key: str, allow_stale: bool = False) -> Optional[Tuple[Any, bool]]:
         """
-        Recupera um valor do cache.
+        Recupera um valor do cache com cópia isolada e despejo de expirados.
         Retorna uma tupla (data, is_stale) ou None se não encontrado/expirado.
         """
         with self._lock:
@@ -62,20 +65,18 @@ class MemoryCache:
 
             if entry.is_fresh():
                 self._hits += 1
-                return entry.data, False
+                return copy.deepcopy(entry.data), False
 
             if allow_stale and entry.is_valid_stale():
                 self._stale_hits += 1
-                return entry.data, True
+                return copy.deepcopy(entry.data), True
 
-            # Se expirou completamente além da janela de stale, remove
-            now = time.time()
-            if now > entry.max_stale_until:
+            # Se expirou além da tolerância stale, realiza o eviction
+            if not entry.is_valid_stale():
                 del self._entries[key]
 
             self._misses += 1
             return None
-
 
     def set(
         self,
@@ -84,7 +85,7 @@ class MemoryCache:
         ttl_seconds: float,
         max_stale_seconds: float = 0.0,
     ) -> None:
-        """Armazena um valor no cache com TTL e janela de stale configurados."""
+        """Armazena um valor no cache com isolamento profundo."""
         with self._lock:
             self._entries[key] = CachedEntry(
                 data=data,
@@ -94,7 +95,7 @@ class MemoryCache:
             self._sets += 1
 
     def invalidate(self, key: str) -> bool:
-        """Remove uma chave específica do cache."""
+        """Invalida uma chave específica do cache."""
         with self._lock:
             if key in self._entries:
                 del self._entries[key]
@@ -102,33 +103,29 @@ class MemoryCache:
             return False
 
     def clear(self) -> None:
-        """Limpa todas as entradas e zera os contadores do cache."""
+        """Limpa todo o conteúdo do cache."""
         with self._lock:
             self._entries.clear()
-            self._hits = 0
-            self._misses = 0
-            self._stale_hits = 0
-            self._sets = 0
 
-    def get_stats(self) -> Dict[str, int]:
-        """Retorna métricas de performance do cache."""
+    def get_stats(self) -> Dict[str, Any]:
+        """Retorna as estatísticas operacionais do cache (compatibilidade)."""
+        return self.metrics
+
+    @property
+    def metrics(self) -> Dict[str, Any]:
+        """Retorna as métricas operacionais de desempenho do cache."""
         with self._lock:
+            total_lookups = self._hits + self._stale_hits + self._misses
+            hit_ratio = (
+                (self._hits + self._stale_hits) / total_lookups
+                if total_lookups > 0
+                else 0.0
+            )
             return {
-                "hits": self._hits,
-                "misses": self._misses,
-                "stale_hits": self._stale_hits,
-                "sets": self._sets,
                 "size": len(self._entries),
+                "hits": self._hits,
+                "stale_hits": self._stale_hits,
+                "misses": self._misses,
+                "sets": self._sets,
+                "hit_ratio": round(hit_ratio, 4),
             }
-
-
-# Instância global singleton do cache
-_GLOBAL_CACHE: Optional[MemoryCache] = None
-
-
-def get_cache() -> MemoryCache:
-    """Retorna a instância singleton do MemoryCache."""
-    global _GLOBAL_CACHE
-    if _GLOBAL_CACHE is None:
-        _GLOBAL_CACHE = MemoryCache()
-    return _GLOBAL_CACHE
