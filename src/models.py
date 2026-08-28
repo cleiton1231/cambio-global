@@ -22,6 +22,13 @@ class AssetType(str, Enum):
     CRYPTO = "crypto"
 
 
+class OperationType(str, Enum):
+    """Direção da operação cambial para efeito de cálculo do VET."""
+    OUTBOUND = "outbound"  # Compra de moeda estrangeira / Envio de recursos para fora
+    INBOUND = "inbound"    # Recebimento de remessa / Venda de moeda estrangeira
+
+
+
 # ============================================================================
 # Hierarquia de Exceções de Domínio
 # ============================================================================
@@ -312,3 +319,134 @@ class BasketResult:
             "items": [item.to_dict() for item in self.items],
             "timestamp": self.timestamp.isoformat(),
         }
+
+
+# ============================================================================
+# Modelos para Custos Reais, IOF e VET (BACEN)
+# ============================================================================
+
+@dataclass
+class TransactionProfile:
+    """Perfil de operação financeira com alíquotas de IOF e spread pré-definidas."""
+    name: str
+    description: str
+    iof_pct: Decimal
+    spread_pct: Decimal
+    fixed_fee: Decimal = Decimal("0.0")
+    operation_type: OperationType = OperationType.OUTBOUND
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "iof_pct": float(self.iof_pct),
+            "spread_pct": float(self.spread_pct),
+            "fixed_fee": float(self.fixed_fee),
+            "operation_type": self.operation_type.value,
+        }
+
+
+@dataclass
+class CostSimulationResult:
+    """Resultado detalhado de simulação de custos cambiais e VET."""
+    amount_from: Decimal
+    currency_from: str
+    amount_to: Decimal
+    currency_to: str
+    operation_type: OperationType
+    commercial_rate: Decimal
+    spread_pct: Decimal
+    spread_amount: Decimal
+    effective_rate: Decimal
+    iof_pct: Decimal
+    iof_amount: Decimal
+    fixed_fee: Decimal
+    net_amount_to: Decimal
+    total_cost_from: Decimal
+    vet: Decimal
+    profile_name: str
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "amount_from": float(self.amount_from),
+            "currency_from": self.currency_from,
+            "amount_to": float(self.amount_to),
+            "currency_to": self.currency_to,
+            "operation_type": self.operation_type.value,
+            "commercial_rate": float(self.commercial_rate),
+            "spread_pct": float(self.spread_pct),
+            "spread_amount": float(self.spread_amount),
+            "effective_rate": float(self.effective_rate),
+            "iof_pct": float(self.iof_pct),
+            "iof_amount": float(self.iof_amount),
+            "fixed_fee": float(self.fixed_fee),
+            "net_amount_to": float(self.net_amount_to),
+            "total_cost_from": float(self.total_cost_from),
+            "vet": float(self.vet),
+            "profile_name": self.profile_name,
+            "timestamp": self.timestamp.isoformat(),
+        }
+
+
+# ============================================================================
+# Modelos para Salário Internacional e Relocation
+# ============================================================================
+
+@dataclass
+class SalaryEquivalencyResult:
+    """Resultado do cálculo de equivalência salarial e poder de compra internacional."""
+    base_salary: Decimal
+    base_currency: str
+    target_currency: str
+    country_from: str
+    country_to: str
+    nominal_converted_salary: Decimal
+    ppp_equivalent_salary: Decimal
+    purchasing_power_diff_pct: Decimal
+    price_level_ratio: Decimal
+    verdict: str
+    year: int
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "base_salary": float(self.base_salary),
+            "base_currency": self.base_currency,
+            "target_currency": self.target_currency,
+            "country_from": self.country_from,
+            "country_to": self.country_to,
+            "nominal_converted_salary": float(self.nominal_converted_salary),
+            "ppp_equivalent_salary": float(self.ppp_equivalent_salary),
+            "purchasing_power_diff_pct": float(self.purchasing_power_diff_pct),
+            "price_level_ratio": float(self.price_level_ratio),
+            "verdict": self.verdict,
+            "year": self.year,
+            "timestamp": self.timestamp.isoformat(),
+        }
+
+
+# ============================================================================
+# Modelos para Relatórios Financeiros Executivos
+# ============================================================================
+
+@dataclass
+class FinancialReportData:
+    """Dados consolidados para emissão de relatório financeiro executivo."""
+    title: str
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    conversions: List[ConversionResult] = field(default_factory=list)
+    cost_simulation: Optional[CostSimulationResult] = None
+    salary_analysis: Optional[SalaryEquivalencyResult] = None
+    notes: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "title": self.title,
+            "created_at": self.created_at.isoformat(),
+            "conversions": [c.to_dict() for c in self.conversions],
+            "cost_simulation": self.cost_simulation.to_dict() if self.cost_simulation else None,
+            "salary_analysis": self.salary_analysis.to_dict() if self.salary_analysis else None,
+            "notes": self.notes,
+        }
+
