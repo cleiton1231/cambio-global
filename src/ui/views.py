@@ -6,10 +6,13 @@ Responsabilidades:
 - Renderizar painéis comparativos de conversão nominal vs. Paridade de Poder de Compra (PPP).
 - Renderizar análises de tendência com Sparklines Unicode.
 - Renderizar conversões em lote / cesta de moedas.
+- Renderizar simulação de custos reais, IOF, spread e VET (BACEN).
+- Renderizar análise de salário internacional e relocation.
 - Exibir histórico, favoritos, spinners e mensagens de erro amigáveis sem stack traces.
 """
 
 from decimal import Decimal
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from rich.console import Console
 from rich.panel import Panel
@@ -20,7 +23,9 @@ from src.models import (
     BasketResult,
     ConversionRecord,
     ConversionResult,
+    CostSimulationResult,
     PPPResult,
+    SalaryEquivalencyResult,
     TrendAnalysis,
 )
 
@@ -96,6 +101,50 @@ class TerminalViews:
 
         title = " Resultado da Conversão Cambial "
         self.console.print(Panel(table, title=title, border_style="green", expand=False))
+
+    def render_cost_simulation(self, sim: CostSimulationResult) -> None:
+        """Renderiza a simulação detalhada de custos, IOF e VET (BACEN)."""
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_column("Chave", style="bold white")
+        table.add_column("Valor", style="bold yellow")
+
+        table.add_row("Perfil / Modalidade:", f"[cyan]{sim.profile_name}[/cyan] ({sim.operation_type.value.upper()})")
+        table.add_row("Quantia Negociada:", f"{sim.amount_from:,.2f} {sim.currency_from}")
+        table.add_row("Taxa Comercial de Mercado:", f"{sim.commercial_rate:,.6f}")
+        table.add_row("Spread Aplicado:", f"{sim.spread_pct:.2f}% (R$ {sim.spread_amount:,.6f}/un)")
+        table.add_row("Taxa Efetiva com Spread:", f"[white]{sim.effective_rate:,.6f}[/white]")
+        table.add_row("IOF Recolhido:", f"{sim.iof_pct:.2f}% ({sim.iof_amount:,.2f})")
+        if sim.fixed_fee > 0:
+            table.add_row("Tarifa Fixa Bancária:", f"{sim.fixed_fee:,.2f}")
+        
+        table.add_row("─" * 25, "─" * 30)
+        table.add_row("Montante Líquido Entregue:", f"[bold green]{sim.net_amount_to:,.2f} {sim.currency_to}[/bold green]")
+        table.add_row("Custo Total Efetivo:", f"{sim.total_cost_from:,.2f} {sim.currency_from}")
+        table.add_row("💳 Valor Efetivo Total (VET):", f"[bold magenta]{sim.vet:,.6f}[/bold magenta]")
+
+        title = " 💳 Simulação de Custos Cambiais & VET (BACEN) "
+        self.console.print(Panel(table, title=title, border_style="magenta", expand=False))
+
+    def render_salary_equivalency(self, sal: SalaryEquivalencyResult) -> None:
+        """Renderiza a análise de equivalência de salário internacional."""
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_column("Chave", style="bold white")
+        table.add_column("Valor", style="bold yellow")
+
+        table.add_row("Salário Base Atual:", f"{sal.base_salary:,.2f} {sal.base_currency} ({sal.country_from})")
+        table.add_row("Salário Convertido (Nominal):", f"{sal.nominal_converted_salary:,.2f} {sal.target_currency} ({sal.country_to})")
+        table.add_row("Salário Equivalente PPP:", f"[bold green]{sal.ppp_equivalent_salary:,.2f} {sal.target_currency}[/bold green] (Banco Mundial {sal.year})")
+        
+        diff_style = "bold green" if sal.purchasing_power_diff_pct >= 0 else "bold red"
+        diff_sign = "+" if sal.purchasing_power_diff_pct >= 0 else ""
+        table.add_row("Variação do Poder de Compra:", f"[{diff_style}]{diff_sign}{sal.purchasing_power_diff_pct:.1f}%[/{diff_style}]")
+        table.add_row("Índice do Nível de Preços (PLR):", f"{sal.price_level_ratio:.2f}")
+
+        table.add_row("─" * 25, "─" * 40)
+        table.add_row("Veredito de Relocation:", f"[italic white]{sal.verdict}[/italic white]")
+
+        title = f" 🌍 Calculadora de Salário Internacional: {sal.country_from} ➔ {sal.country_to} "
+        self.console.print(Panel(table, title=title, border_style="cyan", expand=False))
 
     def render_trend_analysis(self, trend: TrendAnalysis) -> None:
         """Renderiza a análise de tendência com Sparkline Unicode e volatilidade."""

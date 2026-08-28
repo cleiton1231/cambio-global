@@ -13,6 +13,7 @@
             --primary-hover: #0ea5e9;
             --accent: #10b981;
             --danger: #ef4444;
+            --purple: #c084fc;
             --text-main: #f8fafc;
             --text-muted: #94a3b8;
             --input-bg: #0f172a;
@@ -75,7 +76,7 @@
 
         .main-container {
             width: 100%;
-            max-width: 960px;
+            max-width: 980px;
             display: flex;
             flex-direction: column;
             gap: 1.5rem;
@@ -93,7 +94,7 @@
 
         .tab-btn {
             flex: 1;
-            padding: 0.75rem 0.75rem;
+            padding: 0.75rem 0.6rem;
             background: transparent;
             border: none;
             color: var(--text-muted);
@@ -102,7 +103,7 @@
             cursor: pointer;
             transition: all 0.2s;
             white-space: nowrap;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
         }
 
         .tab-btn.active {
@@ -120,15 +121,9 @@
 
         .form-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 1rem;
             margin-bottom: 1.5rem;
-        }
-
-        @media (max-width: 640px) {
-            .form-grid {
-                grid-template-columns: 1fr;
-            }
         }
 
         .form-group {
@@ -143,7 +138,7 @@
             color: var(--text-muted);
         }
 
-        .form-group input, .form-group select {
+        .form-group input, .form-group select, .form-group textarea {
             background: var(--input-bg);
             border: 1px solid var(--card-border);
             border-radius: 8px;
@@ -154,7 +149,7 @@
             transition: border-color 0.2s;
         }
 
-        .form-group input:focus, .form-group select:focus {
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
             border-color: var(--primary);
         }
 
@@ -188,43 +183,17 @@
             display: block;
         }
 
-        .result-title {
-            font-size: 0.9rem;
-            color: var(--text-muted);
-            margin-bottom: 0.25rem;
-        }
-
-        .result-value {
-            font-size: 1.8rem;
-            font-weight: 700;
-            color: var(--accent);
-            margin-bottom: 0.5rem;
-        }
-
-        .result-rate {
-            font-size: 0.85rem;
-            color: var(--text-muted);
-        }
-
-        .ppp-card {
-            margin-top: 1rem;
-            padding-top: 1rem;
-            border-top: 1px solid var(--card-border);
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1rem;
-        }
-
         .stat-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
             gap: 0.75rem;
-            margin-bottom: 1.5rem;
+            margin-top: 1rem;
+            margin-bottom: 1rem;
         }
 
         .stat-item {
             background: #1e293b;
-            padding: 0.75rem;
+            padding: 0.85rem;
             border-radius: 8px;
             border: 1px solid var(--card-border);
         }
@@ -236,8 +205,8 @@
         }
 
         .stat-val {
-            font-size: 1.1rem;
-            font-weight: 600;
+            font-size: 1.2rem;
+            font-weight: 700;
             color: #38bdf8;
         }
 
@@ -265,6 +234,7 @@
 
         .tag-green { color: var(--accent); font-weight: 600; }
         .tag-red { color: var(--danger); font-weight: 600; }
+        .tag-purple { color: var(--purple); font-weight: 700; }
 
         canvas {
             width: 100% !important;
@@ -282,11 +252,12 @@
 
     <header class="header">
         <h1>💱 Câmbio Global 🪙</h1>
-        <p>Conversor de Moedas Fiduciárias, Criptoativos, Cestas e Paridade de Poder de Compra (PPP)</p>
+        <p>Conversor de Moedas, Criptoativos, VET, Salários Internacionais & Relatórios</p>
         <div class="badges">
-            <span class="badge">BCE / Frankfurter API</span>
+            <span class="badge">BCE / Frankfurter</span>
             <span class="badge">CoinCap API</span>
             <span class="badge">Banco Mundial (PPP)</span>
+            <span class="badge">Simulador VET (BACEN)</span>
             <span class="badge">TTL Cache Ativo</span>
         </div>
     </header>
@@ -295,10 +266,13 @@
         <!-- Navegação por Abas -->
         <nav class="tabs">
             <button class="tab-btn active" onclick="switchTab('converter')">Conversor & PPP</button>
+            <button class="tab-btn" onclick="switchTab('simulate')">Custos & VET</button>
+            <button class="tab-btn" onclick="switchTab('salary')">Salário Internacional</button>
             <button class="tab-btn" onclick="switchTab('basket')">Cesta de Moedas</button>
-            <button class="tab-btn" onclick="switchTab('trend')">Tendências & Gráficos</button>
-            <button class="tab-btn" onclick="switchTab('rates')">Cotações Fiat</button>
-            <button class="tab-btn" onclick="switchTab('crypto')">Criptoativos</button>
+            <button class="tab-btn" onclick="switchTab('trend')">Tendências</button>
+            <button class="tab-btn" onclick="switchTab('report')">Relatórios</button>
+            <button class="tab-btn" onclick="switchTab('rates')">Cotações</button>
+            <button class="tab-btn" onclick="switchTab('crypto')">Cripto</button>
             <button class="tab-btn" onclick="switchTab('history')">Histórico</button>
         </nav>
 
@@ -327,13 +301,13 @@
             <button class="action-btn" onclick="performConversion()">Calcular Conversão</button>
 
             <div id="resultBox" class="result-box">
-                <div class="result-title">Resultado Nominal de Mercado:</div>
-                <div id="nominalVal" class="result-value">--</div>
-                <div id="rateInfo" class="result-rate">Taxa: --</div>
+                <div style="font-size: 0.9rem; color: var(--text-muted);">Resultado Nominal de Mercado:</div>
+                <div id="nominalVal" style="font-size: 1.8rem; font-weight: 700; color: var(--accent); margin-bottom: 0.5rem;">--</div>
+                <div id="rateInfo" style="font-size: 0.85rem; color: var(--text-muted);">Taxa: --</div>
 
-                <div id="pppSection" class="ppp-card hidden">
+                <div id="pppSection" class="stat-grid hidden" style="margin-top: 1rem;">
                     <div class="stat-item">
-                        <div class="stat-label">🌍 Equivalente em Poder de Compra (PPP):</div>
+                        <div class="stat-label">🌍 Equivalente em Poder de Compra:</div>
                         <div id="pppVal" class="stat-val">--</div>
                     </div>
                     <div class="stat-item">
@@ -344,7 +318,104 @@
             </div>
         </section>
 
-        <!-- Aba 2: Cesta de Moedas (Basket) -->
+        <!-- Aba 2: Simulador de Custos & VET -->
+        <section id="tab-simulate" class="card hidden">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="simAmount">Quantia Negociada</label>
+                    <input type="number" id="simAmount" value="1000" min="1" step="any">
+                </div>
+                <div class="form-group">
+                    <label for="simFrom">De</label>
+                    <input type="text" id="simFrom" value="BRL">
+                </div>
+                <div class="form-group">
+                    <label for="simTo">Para</label>
+                    <input type="text" id="simTo" value="USD">
+                </div>
+                <div class="form-group">
+                    <label for="simProfile">Perfil da Operação</label>
+                    <select id="simProfile">
+                        <option value="global_account" selected>Conta Global / Débito (Wise, Nomad)</option>
+                        <option value="credit_card">Cartão de Crédito Internacional</option>
+                        <option value="investment">Remessa para Investimentos no Exterior</option>
+                        <option value="inbound_salary">Recebimento de Salário / Freelance (Inbound)</option>
+                        <option value="crypto_p2p">Cripto P2P</option>
+                    </select>
+                </div>
+            </div>
+
+            <button class="action-btn" onclick="performCostSimulation()">Simular Custos & VET</button>
+
+            <div id="simResultBox" class="result-box">
+                <div class="stat-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">Taxa Comercial</div>
+                        <div id="simCommRate" class="stat-val">--</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Taxa com Spread</div>
+                        <div id="simEffRate" class="stat-val">--</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">IOF Recolhido</div>
+                        <div id="simIOF" class="stat-val">--</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Líquido Entregue</div>
+                        <div id="simNet" class="stat-val tag-green">--</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">💳 VET (Valor Efetivo Total)</div>
+                        <div id="simVET" class="stat-val tag-purple">--</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Aba 3: Salário Internacional -->
+        <section id="tab-salary" class="card hidden">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="salAmount">Salário Base Atual</label>
+                    <input type="number" id="salAmount" value="5000" min="1" step="any">
+                </div>
+                <div class="form-group">
+                    <label for="salFrom">Moeda Atual</label>
+                    <input type="text" id="salFrom" value="USD">
+                </div>
+                <div class="form-group">
+                    <label for="salTo">Moeda Destino</label>
+                    <input type="text" id="salTo" value="BRL">
+                </div>
+                <div class="form-group">
+                    <label for="salCountryTo">País Destino (ISO-3 Opcional)</label>
+                    <input type="text" id="salCountryTo" placeholder="ex: BRA, PRT, DEU">
+                </div>
+            </div>
+
+            <button class="action-btn" onclick="performSalaryCalculation()">Calcular Equivalência Salarial</button>
+
+            <div id="salResultBox" class="result-box">
+                <div class="stat-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">Nominal Convertido</div>
+                        <div id="salNominal" class="stat-val">--</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Equivalente PPP (Padrão de Vida)</div>
+                        <div id="salPPP" class="stat-val tag-green">--</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Variação Real</div>
+                        <div id="salDiff" class="stat-val">--</div>
+                    </div>
+                </div>
+                <p id="salVerdict" style="margin-top: 0.75rem; font-style: italic; color: var(--text-main);">--</p>
+            </div>
+        </section>
+
+        <!-- Aba 4: Cesta de Moedas -->
         <section id="tab-basket" class="card hidden">
             <div class="form-grid">
                 <div class="form-group">
@@ -357,13 +428,13 @@
                 </div>
                 <div class="form-group">
                     <label for="basketTargets">Moedas Alvo (Separadas por espaço)</label>
-                    <input type="text" id="basketTargets" value="BRL EUR GBP JPY BTC ETH" placeholder="BRL EUR GBP JPY BTC ETH">
+                    <input type="text" id="basketTargets" value="BRL EUR GBP JPY BTC ETH">
                 </div>
             </div>
 
             <button class="action-btn" onclick="performBasketConversion()">Calcular Cesta Concorrente</button>
 
-            <div class="table-container" style="margin-top: 1.5rem;">
+            <div class="table-container">
                 <table id="basketTable">
                     <thead>
                         <tr>
@@ -378,7 +449,7 @@
             </div>
         </section>
 
-        <!-- Aba 3: Tendências & Gráficos -->
+        <!-- Aba 5: Tendências -->
         <section id="tab-trend" class="card hidden">
             <div class="form-grid">
                 <div class="form-group">
@@ -401,7 +472,7 @@
 
             <button class="action-btn" onclick="loadTrendChart()">Gerar Gráfico de Tendência</button>
 
-            <div id="trendMetrics" class="stat-grid hidden" style="margin-top: 1.5rem;">
+            <div id="trendMetrics" class="stat-grid hidden">
                 <div class="stat-item">
                     <div class="stat-label">Cotação Inicial</div>
                     <div id="metricStart" class="stat-val">--</div>
@@ -415,7 +486,7 @@
                     <div id="metricMinMax" class="stat-val">--</div>
                 </div>
                 <div class="stat-item">
-                    <div class="stat-label">Variação no Período</div>
+                    <div class="stat-label">Variação</div>
                     <div id="metricChange" class="stat-val">--</div>
                 </div>
             </div>
@@ -423,60 +494,82 @@
             <canvas id="chartCanvas" class="hidden"></canvas>
         </section>
 
-        <!-- Aba 4: Cotações Fiat -->
+        <!-- Aba 6: Relatórios -->
+        <section id="tab-report" class="card hidden">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="repTitle">Título do Relatório</label>
+                    <input type="text" id="repTitle" value="Relatório Financeiro Executivo">
+                </div>
+                <div class="form-group">
+                    <label for="repAmount">Quantia Base</label>
+                    <input type="number" id="repAmount" value="1000">
+                </div>
+                <div class="form-group">
+                    <label for="repFrom">De</label>
+                    <input type="text" id="repFrom" value="USD">
+                </div>
+                <div class="form-group">
+                    <label for="repTo">Para</label>
+                    <input type="text" id="repTo" value="BRL">
+                </div>
+                <div class="form-group">
+                    <label for="repFormat">Formato</label>
+                    <select id="repFormat">
+                        <option value="html" selected>HTML5 Executivo (Print/PDF)</option>
+                        <option value="md">Markdown (GFM)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.5rem;">
+                <label for="repNotes">Observações Executivas</label>
+                <textarea id="repNotes" rows="2" placeholder="Notas adicionais..."></textarea>
+            </div>
+
+            <button class="action-btn" onclick="generateReport()">Gerar e Visualizar Relatório</button>
+
+            <div id="repResultBox" class="result-box">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                    <div style="font-weight: 600; color: var(--primary);">Documento Gerado com Sucesso</div>
+                    <button onclick="downloadReport()" style="background: var(--accent); color: #0b0f19; border:none; padding: 0.4rem 0.8rem; border-radius: 6px; cursor: pointer; font-weight: bold;">Download</button>
+                </div>
+                <textarea id="repContent" style="width: 100%; height: 200px; background: var(--card-bg); color: var(--text-main); font-family: monospace; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--card-border);" readonly></textarea>
+            </div>
+        </section>
+
+        <!-- Aba 7: Cotações Fiat -->
         <section id="tab-rates" class="card hidden">
             <div style="display: flex; gap: 1rem; align-items: flex-end; margin-bottom: 1rem;">
                 <div class="form-group" style="flex: 1;">
                     <label for="baseRate">Moeda Base</label>
-                    <input type="text" id="baseRate" value="USD" placeholder="USD">
+                    <input type="text" id="baseRate" value="USD">
                 </div>
                 <button class="action-btn" style="width: auto; padding: 0.75rem 1.5rem;" onclick="loadRates()">Atualizar</button>
             </div>
             <div class="table-container">
                 <table id="ratesTable">
-                    <thead>
-                        <tr>
-                            <th>Moeda</th>
-                            <th>Taxa Oficial (BCE)</th>
-                        </tr>
-                    </thead>
+                    <thead><tr><th>Moeda</th><th>Taxa Oficial (BCE)</th></tr></thead>
                     <tbody></tbody>
                 </table>
             </div>
         </section>
 
-        <!-- Aba 5: Criptoativos -->
+        <!-- Aba 8: Cripto -->
         <section id="tab-crypto" class="card hidden">
             <div class="table-container">
                 <table id="cryptoTable">
-                    <thead>
-                        <tr>
-                            <th>Rank</th>
-                            <th>Ticker</th>
-                            <th>Nome</th>
-                            <th>Preço (USD)</th>
-                            <th>Variação 24h</th>
-                        </tr>
-                    </thead>
+                    <thead><tr><th>Rank</th><th>Ticker</th><th>Nome</th><th>Preço (USD)</th><th>Variação 24h</th></tr></thead>
                     <tbody></tbody>
                 </table>
             </div>
         </section>
 
-        <!-- Aba 6: Histórico -->
+        <!-- Aba 9: Histórico -->
         <section id="tab-history" class="card hidden">
             <div class="table-container">
                 <table id="historyTable">
-                    <thead>
-                        <tr>
-                            <th>Data</th>
-                            <th>De</th>
-                            <th>Para</th>
-                            <th>Original</th>
-                            <th>Convertido</th>
-                            <th>PPP</th>
-                        </tr>
-                    </thead>
+                    <thead><tr><th>Data</th><th>De</th><th>Para</th><th>Original</th><th>Convertido</th><th>PPP</th></tr></thead>
                     <tbody></tbody>
                 </table>
             </div>
@@ -484,6 +577,9 @@
     </main>
 
     <script>
+        let currentReportBlob = null;
+        let currentReportFilename = "relatorio.html";
+
         function switchTab(tabId) {
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
@@ -504,10 +600,7 @@
             const toC = document.getElementById('toCurrency').value.trim();
             const withPPP = document.getElementById('enablePPP').checked;
 
-            if (!amount || !fromC || !toC) {
-                alert('Preencha quantia, moeda de origem e destino.');
-                return;
-            }
+            if (!amount || !fromC || !toC) return alert('Preencha os campos.');
 
             const endpoint = withPPP ? '/api/ppp' : '/api/convert';
             try {
@@ -517,29 +610,107 @@
                     body: JSON.stringify({ amount, from_currency: fromC, to_currency: toC })
                 });
                 const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || 'Erro na conversão');
+                if (!res.ok) throw new Error(data.detail || 'Erro');
 
-                const box = document.getElementById('resultBox');
-                box.classList.add('active');
-
+                document.getElementById('resultBox').classList.add('active');
                 if (withPPP) {
                     const c = data.conversion;
                     const p = data.ppp;
-                    document.getElementById('nominalVal').innerText = `${c.amount_to.toLocaleString(undefined, {minimumFractionDigits: 2})} ${c.currency_to}`;
+                    document.getElementById('nominalVal').innerText = `${c.amount_to.toLocaleString()} ${c.currency_to}`;
                     document.getElementById('rateInfo').innerText = `Taxa Nominal: 1 ${c.currency_from} = ${c.rate} ${c.currency_to}`;
-
-                    const pppSec = document.getElementById('pppSection');
-                    pppSec.classList.remove('hidden');
-                    document.getElementById('pppVal').innerText = `${p.ppp_equivalent_amount.toLocaleString(undefined, {minimumFractionDigits: 2})} ${p.currency_to}`;
-                    document.getElementById('plrVal').innerText = `${p.price_level_ratio.toFixed(2)} (Taxa PPP: ${p.ppp_rate.toFixed(4)})`;
+                    document.getElementById('pppSection').classList.remove('hidden');
+                    document.getElementById('pppVal').innerText = `${p.ppp_equivalent_amount.toLocaleString()} ${p.currency_to}`;
+                    document.getElementById('plrVal').innerText = `${p.price_level_ratio.toFixed(2)}`;
                 } else {
-                    document.getElementById('nominalVal').innerText = `${data.amount_to.toLocaleString(undefined, {minimumFractionDigits: 2})} ${data.currency_to}`;
-                    document.getElementById('rateInfo').innerText = `Taxa de Mercado: 1 ${data.currency_from} = ${data.rate} ${data.currency_to} (${data.source})`;
+                    document.getElementById('nominalVal').innerText = `${data.amount_to.toLocaleString()} ${data.currency_to}`;
+                    document.getElementById('rateInfo').innerText = `Taxa de Mercado: 1 ${data.currency_from} = ${data.rate} ${data.currency_to}`;
                     document.getElementById('pppSection').classList.add('hidden');
                 }
-            } catch (err) {
-                alert(err.message);
-            }
+            } catch (err) { alert(err.message); }
+        }
+
+        async function performCostSimulation() {
+            const amount = parseFloat(document.getElementById('simAmount').value);
+            const from_currency = document.getElementById('simFrom').value.trim();
+            const to_currency = document.getElementById('simTo').value.trim();
+            const profile_key = document.getElementById('simProfile').value;
+
+            try {
+                const res = await fetch('/api/simulate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ amount, from_currency, to_currency, profile_key })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Erro na simulação');
+
+                document.getElementById('simResultBox').classList.add('active');
+                document.getElementById('simCommRate').innerText = data.commercial_rate.toFixed(4);
+                document.getElementById('simEffRate').innerText = data.effective_rate.toFixed(4);
+                document.getElementById('simIOF').innerText = `${data.iof_pct.toFixed(2)}% (${data.iof_amount.toFixed(2)})`;
+                document.getElementById('simNet').innerText = `${data.net_amount_to.toLocaleString(undefined, {minimumFractionDigits: 2})} ${data.currency_to}`;
+                document.getElementById('simVET').innerText = data.vet.toFixed(4);
+            } catch (err) { alert(err.message); }
+        }
+
+        async function performSalaryCalculation() {
+            const base_salary = parseFloat(document.getElementById('salAmount').value);
+            const base_currency = document.getElementById('salFrom').value.trim();
+            const target_currency = document.getElementById('salTo').value.trim();
+            const country_to = document.getElementById('salCountryTo').value.trim() || null;
+
+            try {
+                const res = await fetch('/api/salary', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base_salary, base_currency, target_currency, country_to })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Erro no cálculo salarial');
+
+                document.getElementById('salResultBox').classList.add('active');
+                document.getElementById('salNominal').innerText = `${data.nominal_converted_salary.toLocaleString(undefined, {minimumFractionDigits: 2})} ${data.target_currency}`;
+                document.getElementById('salPPP').innerText = `${data.ppp_equivalent_salary.toLocaleString(undefined, {minimumFractionDigits: 2})} ${data.target_currency}`;
+                const diffClass = data.purchasing_power_diff_pct >= 0 ? 'tag-green' : 'tag-red';
+                document.getElementById('salDiff').innerHTML = `<span class="${diffClass}">${data.purchasing_power_diff_pct >= 0 ? '+' : ''}${data.purchasing_power_diff_pct.toFixed(1)}%</span>`;
+                document.getElementById('salVerdict').innerText = data.verdict;
+            } catch (err) { alert(err.message); }
+        }
+
+        async function generateReport() {
+            const title = document.getElementById('repTitle').value.trim();
+            const amount = parseFloat(document.getElementById('repAmount').value);
+            const from_currency = document.getElementById('repFrom').value.trim();
+            const to_currency = document.getElementById('repTo').value.trim();
+            const format = document.getElementById('repFormat').value;
+            const notes = document.getElementById('repNotes').value.trim() || null;
+
+            try {
+                const res = await fetch('/api/report', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title, amount, from_currency, to_currency, format, notes })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Erro ao gerar relatório');
+
+                document.getElementById('repResultBox').classList.add('active');
+                document.getElementById('repContent').value = data.content;
+
+                currentReportFilename = `relatorio_${from_currency}_${to_currency}.${format}`;
+                const mime = format === 'html' ? 'text/html' : 'text/markdown';
+                currentReportBlob = new Blob([data.content], { type: mime });
+            } catch (err) { alert(err.message); }
+        }
+
+        function downloadReport() {
+            if (!currentReportBlob) return;
+            const url = URL.createObjectURL(currentReportBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = currentReportFilename;
+            a.click();
+            URL.revokeObjectURL(url);
         }
 
         async function performBasketConversion() {
@@ -548,11 +719,6 @@
             const targetsRaw = document.getElementById('basketTargets').value.trim();
             const targets = targetsRaw ? targetsRaw.split(/\s+/) : null;
 
-            if (!amount || !fromC) {
-                alert('Preencha quantia e moeda de origem.');
-                return;
-            }
-
             try {
                 const res = await fetch('/api/basket', {
                     method: 'POST',
@@ -560,31 +726,18 @@
                     body: JSON.stringify({ amount, from_currency: fromC, targets })
                 });
                 const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || 'Erro na cesta');
+                if (!res.ok) throw new Error(data.detail || 'Erro');
 
                 const tbody = document.querySelector('#basketTable tbody');
                 tbody.innerHTML = '';
-
                 data.items.forEach(item => {
                     if (item.error) {
-                        tbody.innerHTML += `<tr>
-                            <td><strong>${item.currency_to}</strong></td>
-                            <td colspan="2" class="tag-red">${item.error}</td>
-                            <td><span class="tag-red">Erro</span></td>
-                        </tr>`;
+                        tbody.innerHTML += `<tr><td><strong>${item.currency_to}</strong></td><td colspan="2" class="tag-red">${item.error}</td><td><span class="tag-red">Erro</span></td></tr>`;
                     } else {
-                        const amt = item.amount_to.toLocaleString(undefined, {minimumFractionDigits: 2});
-                        tbody.innerHTML += `<tr>
-                            <td><strong>${item.currency_to}</strong></td>
-                            <td class="tag-green">${amt}</td>
-                            <td>${item.rate.toFixed(6)}</td>
-                            <td><span class="tag-green">OK</span></td>
-                        </tr>`;
+                        tbody.innerHTML += `<tr><td><strong>${item.currency_to}</strong></td><td class="tag-green">${item.amount_to.toLocaleString()}</td><td>${item.rate.toFixed(6)}</td><td><span class="tag-green">OK</span></td></tr>`;
                     }
                 });
-            } catch (err) {
-                alert(err.message);
-            }
+            } catch (err) { alert(err.message); }
         }
 
         async function loadTrendChart() {
@@ -595,24 +748,19 @@
             try {
                 const res = await fetch(`/api/trend?from_currency=${fromC}&to_currency=${toC}&days=${days}`);
                 const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || 'Erro ao carregar tendência');
+                if (!res.ok) throw new Error(data.detail || 'Erro');
 
                 document.getElementById('trendMetrics').classList.remove('hidden');
                 document.getElementById('metricStart').innerText = data.start_rate.toFixed(4);
                 document.getElementById('metricEnd').innerText = data.end_rate.toFixed(4);
                 document.getElementById('metricMinMax').innerText = `${data.min_rate.toFixed(4)} / ${data.max_rate.toFixed(4)}`;
-
-                const changeEl = document.getElementById('metricChange');
                 const changeClass = data.change_pct >= 0 ? 'tag-green' : 'tag-red';
-                changeEl.innerHTML = `<span class="${changeClass}">${data.change_pct >= 0 ? '+' : ''}${data.change_pct.toFixed(2)}%</span>`;
+                document.getElementById('metricChange').innerHTML = `<span class="${changeClass}">${data.change_pct >= 0 ? '+' : ''}${data.change_pct.toFixed(2)}%</span>`;
 
-                // Renderiza Canvas
                 const canvas = document.getElementById('chartCanvas');
                 canvas.classList.remove('hidden');
                 drawChart(canvas, data.points);
-            } catch (err) {
-                console.error(err);
-            }
+            } catch (err) { console.error(err); }
         }
 
         function drawChart(canvas, points) {
@@ -622,21 +770,17 @@
             canvas.width = rect.width * dpr;
             canvas.height = rect.height * dpr;
             ctx.scale(dpr, dpr);
-
             const width = rect.width;
             const height = rect.height;
             const padding = 35;
-
             ctx.clearRect(0, 0, width, height);
 
             if (!points || points.length < 2) return;
-
             const values = points.map(p => p.rate);
             const min = Math.min(...values);
             const max = Math.max(...values);
             const span = (max - min) || 1;
 
-            // Linhas de Grade
             ctx.strokeStyle = '#24304f';
             ctx.lineWidth = 1;
             ctx.beginPath();
@@ -646,29 +790,15 @@
             ctx.lineTo(width - padding, height - padding);
             ctx.stroke();
 
-            // Desenha Linha de Cotação
             ctx.strokeStyle = '#38bdf8';
             ctx.lineWidth = 2.5;
             ctx.beginPath();
-
             points.forEach((p, idx) => {
                 const x = padding + (idx / (points.length - 1)) * (width - 2 * padding);
                 const y = height - padding - ((p.rate - min) / span) * (height - 2 * padding);
-                if (idx === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
+                if (idx === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
             });
             ctx.stroke();
-
-            // Pontos inicial e final
-            const firstX = padding;
-            const firstY = height - padding - ((points[0].rate - min) / span) * (height - 2 * padding);
-            const lastX = width - padding;
-            const lastY = height - padding - ((points[points.length - 1].rate - min) / span) * (height - 2 * padding);
-
-            ctx.fillStyle = '#10b981';
-            ctx.beginPath();
-            ctx.arc(lastX, lastY, 5, 0, Math.PI * 2);
-            ctx.fill();
         }
 
         async function loadRates() {
@@ -679,12 +809,9 @@
                 const tbody = document.querySelector('#ratesTable tbody');
                 tbody.innerHTML = '';
                 for (const [curr, rate] of Object.entries(data.rates || {})) {
-                    const row = `<tr><td><strong>${curr}</strong></td><td>${rate.toFixed(4)}</td></tr>`;
-                    tbody.innerHTML += row;
+                    tbody.innerHTML += `<tr><td><strong>${curr}</strong></td><td>${rate.toFixed(4)}</td></tr>`;
                 }
-            } catch (err) {
-                console.error(err);
-            }
+            } catch (err) { console.error(err); }
         }
 
         async function loadCrypto() {
@@ -698,18 +825,9 @@
                     const tagClass = change >= 0 ? 'tag-green' : 'tag-red';
                     const changeStr = `<span class="${tagClass}">${change >= 0 ? '+' : ''}${change.toFixed(2)}%</span>`;
                     const price = parseFloat(a.priceUsd).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-                    const row = `<tr>
-                        <td>${a.rank}</td>
-                        <td><strong>${a.symbol}</strong></td>
-                        <td>${a.name}</td>
-                        <td>$${price}</td>
-                        <td>${changeStr}</td>
-                    </tr>`;
-                    tbody.innerHTML += row;
+                    tbody.innerHTML += `<tr><td>${a.rank}</td><td><strong>${a.symbol}</strong></td><td>${a.name}</td><td>$${price}</td><td>${changeStr}</td></tr>`;
                 });
-            } catch (err) {
-                console.error(err);
-            }
+            } catch (err) { console.error(err); }
         }
 
         async function loadHistory() {
@@ -721,19 +839,9 @@
                 records.forEach(r => {
                     const pppStr = r.ppp_equivalent ? `${r.ppp_equivalent.toFixed(2)}` : '-';
                     const dateStr = r.timestamp ? r.timestamp.substring(0, 19).replace('T', ' ') : '-';
-                    const row = `<tr>
-                        <td>${dateStr}</td>
-                        <td>${r.from_currency}</td>
-                        <td>${r.to_currency}</td>
-                        <td>${r.amount_from.toFixed(2)}</td>
-                        <td class="tag-green">${r.amount_to.toFixed(2)}</td>
-                        <td>${pppStr}</td>
-                    </tr>`;
-                    tbody.innerHTML += row;
+                    tbody.innerHTML += `<tr><td>${dateStr}</td><td>${r.from_currency}</td><td>${r.to_currency}</td><td>${r.amount_from.toFixed(2)}</td><td class="tag-green">${r.amount_to.toFixed(2)}</td><td>${pppStr}</td></tr>`;
                 });
-            } catch (err) {
-                console.error(err);
-            }
+            } catch (err) { console.error(err); }
         }
     </script>
 </body>

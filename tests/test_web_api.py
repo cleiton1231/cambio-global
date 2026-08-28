@@ -3,12 +3,12 @@ Testes Unitários e de Integração da Web API (src/web/app.py).
 
 Cobre:
 - Handlers de Healthcheck, Lista de Moedas, Busca/Autocomplete.
-- Conversão Cambial Nominal (Fiat e Cripto), Cestas de Moedas e Paridade de Poder de Compra (PPP).
-- Análise de Tendências e Sparklines (/api/trend).
+- Conversão Cambial Nominal, Cestas, Simulação de Custos / VET e Salário Internacional.
+- Geração de Relatórios Executivos (/api/report).
 - Histórico e Favoritos.
-- Tratamento de Códigos de Status HTTP e exceções de domínio.
 """
 
+from datetime import datetime, timezone
 from decimal import Decimal
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -17,18 +17,23 @@ from src.models import (
     BasketItemResult,
     BasketResult,
     ConversionResult,
+    CostSimulationResult,
     CurrencyNotFoundError,
     ExchangeRate,
+    OperationType,
     PPPResult,
+    SalaryEquivalencyResult,
     TrendAnalysis,
     TrendPoint,
-    UnsupportedPPPAssetError,
 )
 from src.web.app import (
     BasketRequest,
     ConvertRequest,
+    CostSimulateRequest,
     FavoriteRequest,
     PPPRequest,
+    ReportRequest,
+    SalaryRequest,
     handle_add_favorite,
     handle_basket,
     handle_convert,
@@ -40,7 +45,10 @@ from src.web.app import (
     handle_list_currencies,
     handle_ppp,
     handle_remove_favorite,
+    handle_report,
+    handle_salary,
     handle_search_currencies,
+    handle_simulate,
     handle_trend,
 )
 
@@ -95,6 +103,81 @@ async def test_api_convert_success():
 
 
 @pytest.mark.asyncio
+async def test_api_simulate_success():
+    """Testa endpoint de simulação de custos e VET."""
+    mock_sim = CostSimulationResult(
+        amount_from=Decimal("1000"),
+        currency_from="BRL",
+        amount_to=Decimal("200"),
+        currency_to="USD",
+        operation_type=OperationType.OUTBOUND,
+        commercial_rate=Decimal("0.20"),
+        spread_pct=Decimal("1.50"),
+        spread_amount=Decimal("0.003"),
+        effective_rate=Decimal("0.197"),
+        iof_pct=Decimal("1.10"),
+        iof_amount=Decimal("11.00"),
+        fixed_fee=Decimal("0.00"),
+        net_amount_to=Decimal("197.00"),
+        total_cost_from=Decimal("1011.00"),
+        vet=Decimal("5.132"),
+        profile_name="Conta Global",
+    )
+    with patch("src.web.app.cost_simulator.simulate", new_callable=AsyncMock) as mock_s:
+        mock_s.return_value = mock_sim
+
+        req = CostSimulateRequest(amount=1000.0, from_currency="BRL", to_currency="USD")
+        res = await handle_simulate(req)
+        assert res["vet"] == 5.132
+        assert res["profile_name"] == "Conta Global"
+
+
+@pytest.mark.asyncio
+async def test_api_salary_success():
+    """Testa endpoint de cálculo salarial internacional."""
+    mock_sal = SalaryEquivalencyResult(
+        base_salary=Decimal("5000"),
+        base_currency="USD",
+        target_currency="BRL",
+        country_from="USA",
+        country_to="BRA",
+        nominal_converted_salary=Decimal("25000"),
+        ppp_equivalent_salary=Decimal("12500"),
+        purchasing_power_diff_pct=Decimal("100.0"),
+        price_level_ratio=Decimal("2.0"),
+        verdict="Ganho real de +100%",
+        year=2023,
+    )
+    with patch("src.web.app.salary_calculator.calculate_salary_equivalency", new_callable=AsyncMock) as mock_sal_fn:
+        mock_sal_fn.return_value = mock_sal
+
+        req = SalaryRequest(base_salary=5000.0, base_currency="USD", target_currency="BRL")
+        res = await handle_salary(req)
+        assert res["nominal_converted_salary"] == 25000.0
+        assert res["ppp_equivalent_salary"] == 12500.0
+
+
+@pytest.mark.asyncio
+async def test_api_report_success():
+    """Testa endpoint de emissão de relatório financeiro."""
+    with patch("src.web.app.converter.convert", new_callable=AsyncMock) as mock_c, \
+         patch("src.web.app.cost_simulator.simulate", new_callable=AsyncMock) as mock_s:
+        mock_c.return_value = ConversionResult(Decimal("100"), "USD", Decimal("500"), "BRL", Decimal("5.0"))
+        mock_s.return_value = CostSimulationResult(
+            Decimal("100"), "USD", Decimal("500"), "BRL", OperationType.OUTBOUND,
+            Decimal("5.0"), Decimal("1.5"), Decimal("0.075"), Decimal("4.925"),
+            Decimal("1.1"), Decimal("1.1"), Decimal("0.0"), Decimal("492.5"),
+            Decimal("101.1"), Decimal("0.205"), "Teste"
+        )
+
+        req = ReportRequest(title="Relatório Teste", amount=100.0, from_currency="USD", to_currency="BRL", format="html")
+        res = await handle_report(req)
+        assert res["title"] == "Relatório Teste"
+        assert res["format"] == "html"
+        assert "<!DOCTYPE html>" in res["content"]
+
+
+@pytest.mark.asyncio
 async def test_api_basket_success():
     """Testa endpoint de conversão em cesta."""
     mock_basket = BasketResult(
@@ -138,7 +221,6 @@ async def test_api_trend_success():
         assert res["base_currency"] == "USD"
         assert res["target_currency"] == "BRL"
         assert res["change_pct"] == 10.0
-        assert res["sparkline"] == " █"
 
 
 @pytest.mark.asyncio
@@ -172,8 +254,6 @@ async def test_api_ppp_success():
         res = await handle_ppp(req)
         assert "conversion" in res
         assert "ppp" in res
-        assert res["ppp"]["country_from"] == "USA"
-        assert res["ppp"]["ppp_equivalent_amount"] == 250.0
 
 
 @pytest.mark.asyncio

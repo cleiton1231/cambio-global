@@ -10,6 +10,9 @@ Rotas disponibilizadas:
 - GET /api/trend: Análise de tendências históricas e sparklines.
 - POST /api/convert: Conversão cambial nominal (Fiat e Cripto).
 - POST /api/basket: Conversão concorrente de cesta de moedas.
+- POST /api/simulate: Simulação de custos reais, IOF, spread e VET (BACEN).
+- POST /api/salary: Calculadora de salário internacional e relocation (PPP).
+- POST /api/report: Geração e exportação de relatório executivo (Markdown/HTML).
 - POST /api/ppp: Análise de Paridade de Poder de Compra (PPP).
 - GET /api/history: Histórico recente de conversões.
 - GET /api/favorites / POST /api/favorites / DELETE /api/favorites: Favoritos.
@@ -26,14 +29,19 @@ from src.api.coincap import CoinCapClient
 from src.api.frankfurter import FrankfurterClient
 from src.api.world_bank import WorldBankClient
 from src.converter import CurrencyConverter
+from src.costs import CostSimulator
 from src.match import get_matcher
 from src.models import (
     AssetType,
     CambioGlobalError,
     ConversionRecord,
     CurrencyNotFoundError,
+    FinancialReportData,
+    OperationType,
     UnsupportedPPPAssetError,
 )
+from src.reporter import FinancialReportGenerator
+from src.salary import InternationalSalaryCalculator
 from src.storage import StorageManager
 from src.trend import CurrencyTrendAnalyzer
 
@@ -51,6 +59,34 @@ class BasketRequest(BaseModel):
     amount: float = Field(..., gt=0, description="Quantia monetária a converter (> 0)")
     from_currency: str = Field(..., description="Moeda base de origem (ex: USD, EUR)")
     targets: Optional[List[str]] = Field(None, description="Lista de moedas alvo (opcional; usa favoritos se omitido)")
+
+
+class CostSimulateRequest(BaseModel):
+    amount: float = Field(..., gt=0, description="Quantia monetária negociada (> 0)")
+    from_currency: str = Field(..., description="Moeda de origem (ex: BRL, USD)")
+    to_currency: str = Field(..., description="Moeda de destino (ex: USD, EUR)")
+    profile_key: Optional[str] = Field("global_account", description="Perfil de custo (global_account, credit_card, investment, inbound_salary, crypto_p2p)")
+    custom_iof: Optional[float] = Field(None, ge=0, description="Alíquota customizada de IOF em %")
+    custom_spread: Optional[float] = Field(None, ge=0, description="Spread customizado em %")
+    custom_fee: Optional[float] = Field(None, ge=0, description="Tarifa fixa bancária")
+    operation_type: Optional[str] = Field(None, description="Direção: outbound ou inbound")
+
+
+class SalaryRequest(BaseModel):
+    base_salary: float = Field(..., gt=0, description="Salário base atual (> 0)")
+    base_currency: str = Field(..., description="Moeda de origem do salário (ex: USD, EUR)")
+    target_currency: str = Field(..., description="Moeda de destino (ex: BRL, EUR)")
+    country_from: Optional[str] = Field(None, description="Código ISO-3 opcional do país de origem (ex: USA, BRA)")
+    country_to: Optional[str] = Field(None, description="Código ISO-3 opcional do país de destino (ex: PRT, DEU)")
+
+
+class ReportRequest(BaseModel):
+    title: str = Field("Relatório Financeiro Executivo", description="Título do documento")
+    amount: float = Field(1000.0, gt=0, description="Quantia de referência")
+    from_currency: str = Field("USD", description="Moeda de origem")
+    to_currency: str = Field("BRL", description="Moeda de destino")
+    format: str = Field("html", description="Formato de saída: html ou md")
+    notes: Optional[str] = Field(None, description="Notas executivas opcionais")
 
 
 class PPPRequest(BaseModel):
@@ -79,12 +115,22 @@ converter = CurrencyConverter(
     coincap=coincap_client,
     world_bank=world_bank_client,
 )
+cost_simulator = CostSimulator(
+    converter=converter,
+    matcher=matcher,
+)
+salary_calculator = InternationalSalaryCalculator(
+    converter=converter,
+    world_bank=world_bank_client,
+    matcher=matcher,
+)
 trend_analyzer = CurrencyTrendAnalyzer(
     matcher=matcher,
     frankfurter=frankfurter_client,
     coincap=coincap_client,
 )
 storage = StorageManager()
+reporter = FinancialReportGenerator(storage=storage)
 
 STATIC_DIR = Path(__file__).parent / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
@@ -95,7 +141,7 @@ STATIC_DIR.mkdir(parents=True, exist_ok=True)
 # ============================================================================
 
 async def handle_health_check() -> Dict[str, str]:
-    return {"status": "ok", "service": "cambio-global", "version": "0.1.0"}
+    return {"status": "ok", "service": "cambio-global", "version": "0.2.0"}
 
 
 async def handle_list_currencies(asset_type: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -139,6 +185,69 @@ async def handle_convert(req: ConvertRequest) -> Dict[str, Any]:
     )
     storage.save_conversion_record(rec)
     return result.to_dict()
+
+
+async def handle_simulate(req: CostSimulateRequest) -> Dict[str, Any]:
+    amount_dec = Decimal(str(req.amount))
+    iof_dec = Decimal(str(req.custom_iof)) if req.custom_iof is not None else None
+    spread_dec = Decimal(str(req.custom_spread)) if req.custom_spread is not None else None
+    fee_dec = Decimal(str(req.custom_fee)) if req.custom_fee is not None else None
+    op_type = OperationType(req.operation_type.lower()) if req.operation_type else None
+
+    result = await cost_simulator.simulate(
+        amount=amount_dec,
+        from_currency=req.from_currency,
+        to_currency=req.to_currency,
+        profile_key=req.profile_key,
+        custom_iof=iof_dec,
+        custom_spread=spread_dec,
+        custom_fee=fee_dec,
+        operation_type=op_type,
+    )
+    return result.to_dict()
+
+
+async def handle_salary(req: SalaryRequest) -> Dict[str, Any]:
+    salary_dec = Decimal(str(req.base_salary))
+    result = await salary_calculator.calculate_salary_equivalency(
+        base_salary=salary_dec,
+        base_currency=req.base_currency,
+        target_currency=req.target_currency,
+        country_from=req.country_from,
+        country_to=req.country_to,
+    )
+    return result.to_dict()
+
+
+async def handle_report(req: ReportRequest) -> Dict[str, Any]:
+    amount_dec = Decimal(str(req.amount))
+    conv_res = await converter.convert(amount_dec, req.from_currency, req.to_currency)
+    sim_res = await cost_simulator.simulate(amount_dec, req.from_currency, req.to_currency, profile_key="global_account")
+    sal_res = None
+    try:
+        sal_res = await salary_calculator.calculate_salary_equivalency(amount_dec, req.from_currency, req.to_currency)
+    except Exception:
+        pass
+
+    data = FinancialReportData(
+        title=req.title,
+        created_at=datetime.now(timezone.utc),
+        conversions=[conv_res],
+        cost_simulation=sim_res,
+        salary_analysis=sal_res,
+        notes=req.notes,
+    )
+
+    if req.format.lower() in ("html", "htm"):
+        content = reporter.generate_html(data)
+    else:
+        content = reporter.generate_markdown(data)
+
+    return {
+        "title": req.title,
+        "format": req.format.lower(),
+        "content": content,
+    }
 
 
 async def handle_basket(req: BasketRequest) -> Dict[str, Any]:
@@ -217,13 +326,13 @@ async def handle_remove_favorite(code: str) -> Dict[str, Any]:
 try:
     from fastapi import FastAPI, HTTPException, Query
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import FileResponse
+    from fastapi.responses import FileResponse, HTMLResponse
     from fastapi.staticfiles import StaticFiles
 
     app = FastAPI(
         title="Câmbio Global API",
-        description="API REST para conversão cambial (Fiat, Cripto, Cestas e Paridade de Poder de Compra - Banco Mundial)",
-        version="0.1.0",
+        description="API REST para conversão cambial, VET, salários internacionais, cestas e relatórios",
+        version="0.2.0",
         docs_url="/docs",
         redoc_url="/redoc",
     )
@@ -284,6 +393,41 @@ try:
     async def api_convert(req: ConvertRequest) -> Dict[str, Any]:
         try:
             return await handle_convert(req)
+        except CurrencyNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except (ValueError, CambioGlobalError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post("/api/simulate")
+    async def api_simulate(req: CostSimulateRequest) -> Dict[str, Any]:
+        try:
+            return await handle_simulate(req)
+        except CurrencyNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except (ValueError, CambioGlobalError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post("/api/salary")
+    async def api_salary(req: SalaryRequest) -> Dict[str, Any]:
+        try:
+            return await handle_salary(req)
+        except UnsupportedPPPAssetError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except CurrencyNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except (ValueError, CambioGlobalError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post("/api/report")
+    async def api_report(req: ReportRequest) -> Dict[str, Any]:
+        try:
+            return await handle_report(req)
         except CurrencyNotFoundError as e:
             raise HTTPException(status_code=404, detail=str(e))
         except (ValueError, CambioGlobalError) as e:
