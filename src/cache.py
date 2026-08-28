@@ -129,3 +129,18 @@ class MemoryCache:
                 "sets": self._sets,
                 "hit_ratio": round(hit_ratio, 4),
             }
+
+
+_default_cache: Optional[MemoryCache] = None
+_cache_init_lock = threading.Lock()
+
+
+def get_cache() -> MemoryCache:
+    """Retorna o singleton de cache em memória da aplicação."""
+    global _default_cache
+    if _default_cache is None:
+        with _cache_init_lock:
+            if _default_cache is None:
+                _default_cache = MemoryCache()
+    return _default_cache
+

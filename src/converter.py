@@ -253,7 +253,9 @@ class CurrencyConverter:
             raise ValueError("A lista de moedas de destino não pode estar vazia.")
 
         from_info = self.matcher.match_strict(from_currency)
-        sem = asyncio.Semaphore(concurrency_limit)
+        safe_limit = max(1, min(concurrency_limit, 50))
+        sem = asyncio.Semaphore(safe_limit)
+
 
         async def _convert_single(target_raw: str) -> BasketItemResult:
             async with sem:

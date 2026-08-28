@@ -39,6 +39,38 @@ from src.trend import CurrencyTrendAnalyzer
 from src.ui.views import TerminalViews
 
 
+def parse_safe_decimal(
+    val_str: str,
+    param_name: str = "Valor",
+    min_val: Optional[Decimal] = None,
+    max_val: Optional[Decimal] = Decimal("1e18"),
+) -> Decimal:
+    """Valida e converte string para Decimal de forma estrita, rejeitando NaN, Infinity e overflow."""
+    if not val_str:
+        raise ValueError(f"{param_name} não pode ser vazio.")
+
+    clean_str = str(val_str).strip().replace(",", ".")
+    lower_str = clean_str.lower()
+    if lower_str in ("nan", "snan", "inf", "-inf", "+inf", "infinity", "-infinity", "+infinity"):
+        raise ValueError(f"{param_name} inválido: valores não-finitos (NaN/Infinity) são proibidos.")
+
+    try:
+        val = Decimal(clean_str)
+    except Exception:
+        raise ValueError(f"{param_name} inválido: '{val_str}' não é um número decimal válido.")
+
+    if not val.is_finite():
+        raise ValueError(f"{param_name} inválido: número não-finito.")
+
+    if min_val is not None and val < min_val:
+        raise ValueError(f"{param_name} deve ser maior ou igual a {min_val}.")
+
+    if max_val is not None and val > max_val:
+        raise ValueError(f"{param_name} excede o limite máximo permitido ({max_val}).")
+
+    return val
+
+
 class CambioGlobalCLI:
     """Controlador principal da interface de linha de comando."""
 
@@ -81,7 +113,7 @@ class CambioGlobalCLI:
     ) -> None:
         """Executa e renderiza uma conversão de moeda."""
         try:
-            amount = Decimal(amount_str.replace(",", "."))
+            amount = parse_safe_decimal(amount_str, "Quantia a converter", min_val=Decimal("0.000000000000000001"))
             if with_ppp:
                 conv_res, ppp_res = await self.converter.convert_with_ppp(
                     amount=amount,
@@ -142,10 +174,10 @@ class CambioGlobalCLI:
     ) -> None:
         """Executa simulação de custos, IOF, spread e VET."""
         try:
-            amount = Decimal(amount_str.replace(",", "."))
-            iof = Decimal(iof_str.replace(",", ".")) if iof_str else None
-            spread = Decimal(spread_str.replace(",", ".")) if spread_str else None
-            fee = Decimal(fee_str.replace(",", ".")) if fee_str else None
+            amount = parse_safe_decimal(amount_str, "Quantia da simulação", min_val=Decimal("0.01"))
+            iof = parse_safe_decimal(iof_str, "IOF", min_val=Decimal("0")) if iof_str else None
+            spread = parse_safe_decimal(spread_str, "Spread", min_val=Decimal("0")) if spread_str else None
+            fee = parse_safe_decimal(fee_str, "Tarifa fixa", min_val=Decimal("0")) if fee_str else None
             op_type = OperationType.INBOUND if is_inbound else None
 
             sim_res = await self.cost_simulator.simulate(
@@ -172,7 +204,7 @@ class CambioGlobalCLI:
     ) -> None:
         """Executa cálculo de salário internacional e relocation."""
         try:
-            amount = Decimal(amount_str.replace(",", "."))
+            amount = parse_safe_decimal(amount_str, "Salário base", min_val=Decimal("0.01"))
             sal_res = await self.salary_calculator.calculate_salary_equivalency(
                 base_salary=amount,
                 base_currency=base_curr,
@@ -195,7 +227,7 @@ class CambioGlobalCLI:
     ) -> None:
         """Gera e exporta relatório executivo completo."""
         try:
-            amount = Decimal(amount_str.replace(",", "."))
+            amount = parse_safe_decimal(amount_str, "Quantia do relatório", min_val=Decimal("0.01"))
             conv_res = await self.converter.convert(amount, from_curr, to_curr)
             sim_res = await self.cost_simulator.simulate(amount, from_curr, to_curr, profile_key="global_account")
             sal_res = None
@@ -226,7 +258,7 @@ class CambioGlobalCLI:
     ) -> None:
         """Executa e renderiza a conversão para uma cesta de moedas."""
         try:
-            amount = Decimal(amount_str.replace(",", "."))
+            amount = parse_safe_decimal(amount_str, "Quantia da cesta", min_val=Decimal("0.000000000000000001"))
             if not targets:
                 favs = self.storage.get_favorites()
                 targets = favs if favs else ["BRL", "EUR", "GBP", "JPY", "BTC", "ETH"]
@@ -240,6 +272,7 @@ class CambioGlobalCLI:
             self.views.render_basket_result(basket_res)
         except Exception as err:
             self.views.render_error(f"Erro ao processar cesta: {str(err)}")
+
 
     async def show_trend(
         self,

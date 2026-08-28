@@ -83,6 +83,9 @@ class InternationalSalaryCalculator:
 
         if ppp_factor_from <= 0:
             raise ValueError(f"Fator PPP inválido (<= 0) para o país '{c_from}'.")
+        if ppp_factor_to <= 0:
+            raise ValueError(f"Fator PPP inválido (<= 0) para o país '{c_to}'.")
+
 
         # Conversão nominal de mercado
         conv_res = await self.converter.convert(

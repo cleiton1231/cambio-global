@@ -115,6 +115,9 @@ class CostSimulator:
 
         if iof_pct < 0 or spread_pct < 0 or fixed_fee < 0:
             raise ValueError("Alíquotas de IOF, Spread e taxas fixas não podem ser negativas.")
+        if iof_pct >= 100 or spread_pct >= 100:
+            raise ValueError("Alíquotas de IOF e Spread devem ser estritamente menores que 100%.")
+
 
         # 2. Obtém cotação comercial pura de mercado
         from_info = self.matcher.match_strict(from_currency)
