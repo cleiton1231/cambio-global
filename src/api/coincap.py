@@ -1,14 +1,15 @@
 """
-Módulo de Integração com a API CoinCap v2 (Zero Auth).
+Cliente para a API da CoinCap (v2).
 
 Responsabilidades:
-- Obter cotações em tempo real de criptoativos em USD.
-- Consultar ranking e volume de mercado de criptomoedas.
-- Consultar séries históricas (velas/candles diários) para análise de tendências.
-- Listar taxas de conversão de ativos relativas ao USD.
+- Buscar cotações em tempo real de criptoativos e stablecoins (Zero Auth).
+- Buscar ranking de criptoativos por market cap.
+- Buscar séries históricas de preços diários para gráficos de tendência.
+- Sanitização de IDs e proteção contra priceUsd nulo ou inválido.
 """
 
 from decimal import Decimal
+import re
 from typing import Any, Dict, List, Optional
 import httpx
 
@@ -17,14 +18,16 @@ from src.models import ExchangeRate
 
 
 class CoinCapClient(BaseAPIClient):
-    """Cliente HTTP para comunicação com a API CoinCap v2."""
+    """Cliente para a API CoinCap v2 (Cotações de criptoativos em tempo real)."""
+
+    _ASSET_REGEX = re.compile(r"^[A-Za-z0-9_-]{1,50}$")
 
     def __init__(
         self,
         base_url: str = "https://api.coincap.io/v2",
         timeout: float = 10.0,
-        ttl_seconds: float = 30.0,
-        max_stale_seconds: float = 600.0,
+        ttl_seconds: float = 30.0,  # 30s TTL para cripto
+        max_stale_seconds: float = 3600.0,  # 1h tolerância stale
         client: Optional[httpx.AsyncClient] = None,
     ) -> None:
         super().__init__(
@@ -36,7 +39,7 @@ class CoinCapClient(BaseAPIClient):
             client=client,
         )
 
-        # Mapeamento estático de Ticker -> Asset ID para CoinCap
+        # Mapeamento de tickers comuns para slugs canônicos da CoinCap
         self._ticker_to_id = {
             "BTC": "bitcoin",
             "ETH": "ethereum",
@@ -52,9 +55,13 @@ class CoinCapClient(BaseAPIClient):
         }
 
     def _resolve_asset_id(self, asset_id_or_ticker: str) -> str:
-        """Resolve ticker para o ID canônico da CoinCap."""
-        key = asset_id_or_ticker.upper()
-        return self._ticker_to_id.get(key, asset_id_or_ticker.lower())
+        """Resolve ticker para o ID canônico da CoinCap com sanitização."""
+        clean = str(asset_id_or_ticker).strip()
+        key = clean.upper()
+        resolved = self._ticker_to_id.get(key, clean.lower())
+        if not self._ASSET_REGEX.match(resolved):
+            raise ValueError(f"Identificador de criptoativo inválido: '{asset_id_or_ticker}'")
+        return resolved
 
     async def get_asset(self, asset_id_or_ticker: str) -> Dict[str, Any]:
         """
@@ -62,15 +69,15 @@ class CoinCapClient(BaseAPIClient):
         """
         asset_id = self._resolve_asset_id(asset_id_or_ticker)
         data = await self._request(f"assets/{asset_id}")
-        return data.get("data", {})
+        return data.get("data", {}) if isinstance(data, dict) else {}
 
     async def get_assets(self, limit: int = 100) -> List[Dict[str, Any]]:
         """
         Obtém a lista com ranking e cotações dos principais criptoativos.
         """
-        params = {"limit": min(limit, 2000)}
+        params = {"limit": max(1, min(limit, 2000))}
         data = await self._request("assets", params=params)
-        return data.get("data", [])
+        return data.get("data", []) if isinstance(data, dict) else []
 
     async def get_historical_rates(
         self,
@@ -86,33 +93,41 @@ class CoinCapClient(BaseAPIClient):
         asset_id = self._resolve_asset_id(asset_id_or_ticker)
         params: Dict[str, Any] = {"interval": interval}
         if start_ms is not None:
-            params["start"] = start_ms
+            params["start"] = int(start_ms)
         if end_ms is not None:
-            params["end"] = end_ms
+            params["end"] = int(end_ms)
 
         data = await self._request(f"assets/{asset_id}/history", params=params)
-        return data.get("data", [])
+        return data.get("data", []) if isinstance(data, dict) else []
 
-    async def get_rate_in_usd(self, ticker: str) -> ExchangeRate:
+    async def get_rate_usd(self, asset_id_or_ticker: str) -> Decimal:
         """
-        Obtém a cotação pontual de um criptoativo em USD (preço USD por 1 unidade da cripto).
+        Atalho para obter diretamente o preço em USD (Decimal) de um criptoativo.
         """
-        data = await self.get_asset(ticker)
-        price_usd_str = data.get("priceUsd")
-        if not price_usd_str:
-            raise ValueError(f"Preço em USD não encontrado para {ticker} na CoinCap.")
+        rate_obj = await self.get_rate_in_usd(asset_id_or_ticker)
+        return rate_obj.rate
 
-        return ExchangeRate(
-            base_currency=ticker.upper(),
-            target_currency="USD",
-            rate=Decimal(str(price_usd_str)),
-            source="coincap",
-            is_stale=self.last_response_stale,
-        )
+    async def get_rate_in_usd(self, asset_id_or_ticker: str) -> ExchangeRate:
+        """
+        Obtém a cotação de um criptoativo em USD estruturada como ExchangeRate.
+        """
+        asset_data = await self.get_asset(asset_id_or_ticker)
+        price_str = asset_data.get("priceUsd")
+        if not price_str or not str(price_str).strip():
+            raise ValueError(f"Preço indisponível para o ativo '{asset_id_or_ticker}' na CoinCap.")
 
-    async def get_rates(self) -> List[Dict[str, Any]]:
-        """
-        Obtém a lista completa de taxas relativas ao USD providas pela CoinCap.
-        """
-        data = await self._request("rates")
-        return data.get("data", [])
+        try:
+            val = Decimal(str(price_str))
+            if val <= 0:
+                raise ValueError(f"Preço inválido (<= 0) para o ativo '{asset_id_or_ticker}'.")
+
+            symbol = asset_data.get("symbol", asset_id_or_ticker).upper()
+            return ExchangeRate(
+                base_currency=symbol,
+                target_currency="USD",
+                rate=val,
+                source="coincap",
+                is_stale=self.last_response_stale,
+            )
+        except Exception as e:
+            raise ValueError(f"Falha ao processar cotação cripto: {str(e)}")

@@ -6,6 +6,7 @@ Responsabilidades:
 - Timeout padrão configurável (10s).
 - Cache transparente em memória com TTL e Stale-While-Revalidate.
 - Tratamento defensivo de exceções e conversão em exceções de domínio.
+- Blindagem estrita contra SSRF, desvios de protocolo e Path Traversal.
 """
 
 import asyncio
@@ -29,8 +30,8 @@ class BaseAPIClient:
         service_name: str,
         timeout: float = 10.0,
         max_retries: int = 2,
-        ttl_seconds: float = 300.0,
-        max_stale_seconds: float = 3600.0,
+        ttl_seconds: float = 3600.0,
+        max_stale_seconds: float = 86400.0,
         client: Optional[httpx.AsyncClient] = None,
         cache: Optional[MemoryCache] = None,
     ) -> None:
@@ -43,24 +44,28 @@ class BaseAPIClient:
         self._client = client
         self.cache = cache or get_cache()
         self.last_response_stale = False
-        self._default_headers = {
-            "User-Agent": "CambioGlobal/0.1.0 (Financial Assistant; Zero-Auth Client)",
-            "Accept": "application/json",
-        }
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Retorna o cliente HTTP assíncrono."""
-        if self._client is not None and not self._client.is_closed:
-            return self._client
-        return httpx.AsyncClient(
-            timeout=httpx.Timeout(self.timeout),
-            headers=self._default_headers,
-            follow_redirects=True,
-        )
+        """Obtém ou cria o cliente HTTP assíncrono com pool de conexões."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=self.timeout,
+                headers={"User-Agent": "CambioGlobal/0.2.0 (Open-Source Finance CLI & API)"},
+            )
+        return self._client
 
-    def _generate_cache_key(self, endpoint: str, params: Optional[Dict[str, Any]]) -> str:
-        """Gera chave determinística para o cache."""
-        clean_endpoint = endpoint.lstrip("/")
+    async def close(self) -> None:
+        """Fecha as conexões ativas do cliente HTTP."""
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+
+    def _generate_cache_key(
+        self,
+        endpoint: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Gera chave determinística e padronizada para o cache."""
+        clean_endpoint = endpoint.strip("/").lower()
         params_str = ""
         if params:
             sorted_items = sorted((str(k), str(v)) for k, v in params.items())
@@ -73,7 +78,7 @@ class BaseAPIClient:
         params: Optional[Dict[str, Any]] = None,
     ) -> Any:
         """
-        Executa requisição HTTP GET com cache TTL, retries e degradação graciosa.
+        Executa requisição HTTP GET com cache TTL, retries e blindagem anti-SSRF.
         """
         self.last_response_stale = False
         cache_key = self._generate_cache_key(endpoint, params)
@@ -85,8 +90,32 @@ class BaseAPIClient:
             self.last_response_stale = is_stale
             return data
 
-        clean_endpoint = endpoint.lstrip("/")
+        # 2. Blindagem Anti-SSRF e Path Traversal no endpoint
+        clean_endpoint = str(endpoint).strip().lstrip("/")
+        if "://" in clean_endpoint or clean_endpoint.startswith("//") or clean_endpoint.startswith("\\\\"):
+            raise APIConnectionError(
+                service=self.service_name,
+                message=f"Tentativa de desvio de rota ou SSRF detectada no endpoint: '{endpoint}'",
+            )
+
+        parts = clean_endpoint.split("/")
+        if ".." in parts:
+            raise APIConnectionError(
+                service=self.service_name,
+                message=f"Tentativa de path traversal detectada no endpoint: '{endpoint}'",
+            )
+
         url = f"{self.base_url}/{clean_endpoint}" if clean_endpoint else self.base_url
+
+        # Validação do Host de Destino
+        base_host = httpx.URL(self.base_url).host
+        target_host = httpx.URL(url).host
+        if target_host != base_host:
+            raise APIConnectionError(
+                service=self.service_name,
+                message=f"Desvio de host não autorizado ({target_host} != {base_host})",
+            )
+
         owns_client = self._client is None or self._client.is_closed
         client = await self._get_client()
 
@@ -138,27 +167,20 @@ class BaseAPIClient:
                     except Exception as e:
                         raise APIResponseError(
                             service=self.service_name,
-                            message=f"Resposta JSON malformada: {str(e)}",
+                            message=f"Corpo de resposta JSON inválido: {str(e)}",
                             status_code=response.status_code,
                         )
 
-                except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as net_err:
-                    if attempt < self.max_retries:
-                        await asyncio.sleep(0.3 * (2 ** attempt))
-                        continue
-
-                    # Em falha total de rede, tenta servir stale cache antes de estourar
-                    stale_cached = self.cache.get(cache_key, allow_stale=True)
-                    if stale_cached is not None:
-                        data, _ = stale_cached
-                        self.last_response_stale = True
-                        return data
-
-                    raise APIConnectionError(
-                        service=self.service_name,
-                        message=f"Erro de conexão com {self.service_name}: {str(net_err)}",
-                    ) from None
-
+                except (httpx.RequestError, httpx.TimeoutException) as exc:
+                    if attempt == self.max_retries:
+                        # Esgotou retries: tenta servir stale cache antes de explodir
+                        stale_cached = self.cache.get(cache_key, allow_stale=True)
+                        if stale_cached is not None:
+                            data, _ = stale_cached
+                            self.last_response_stale = True
+                            return data
+                        raise APIConnectionError(service=self.service_name, message=str(exc))
+                    await asyncio.sleep(0.15 * (2**attempt))
         finally:
-            if owns_client and not client.is_closed:
-                await client.aclose()
+            if owns_client and self._client is not None:
+                await self.close()
