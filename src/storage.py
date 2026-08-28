@@ -188,3 +188,17 @@ class StorageManager:
 
         tmp_path.replace(safe_path)
         return safe_path
+
+    def export_report_text(self, filename_or_path: str, content: str) -> Path:
+        """Exporta relatório textual (Markdown ou HTML) de forma segura e atômica."""
+        safe_path = self._resolve_safe_path(filename_or_path)
+        parent = safe_path.parent
+        parent.mkdir(parents=True, exist_ok=True)
+
+        with tempfile.NamedTemporaryFile("w", dir=parent, delete=False, encoding="utf-8") as tmp:
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+
+        tmp_path.replace(safe_path)
+        return safe_path
+

